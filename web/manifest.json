@@ -1,0 +1,11 @@
+{
+  "name": "Ridge Detector v2",
+  "short_name": "Ridge Det",
+  "description": "ZED2 Ridge Detection Control",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#1a1a2e",
+  "theme_color": "#16213e",
+  "orientation": "portrait-primary",
+  "icons": []
+}

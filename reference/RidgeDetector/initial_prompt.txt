@@ -1,0 +1,199 @@
+# ZED2 中畦検出＆録画 統合GUIアプリケーション
+
+以下の2つの既存スクリプトをベースに、GPIO録画トリガー・リアルタイム中畦検出・
+シリアル送信を統合したPySide6 GUIアプリケーションを作成してください。
+
+既存コード（必ず先に読んでからコードスタイルと関数を踏襲すること）:
+- Reference/zed_recoder_gui.py    … ZED2 SVO2録画GUI
+- Reference/serial_ridge_detector.py … YOLO-seg畦畔検出＋UBXシリアル送信
+
+============================================================
+■ アプリ概要
+============================================================
+ZED2カメラに対して「録画」と「中畦検出」の2つの機能を持つアプリ。
+2つのGPIO入力（またはGUIボタン）でそれぞれを個別にON/OFFする。
+
+【録画モード】GPIO-A HIGH or GUIボタン
+  → SVO2録画 + IMU CSV記録（検出はしない）
+
+【検出モード】GPIO-B HIGH or GUIボタン
+  → YOLO-seg中畦検出 + a,bシリアル送信（録画はしない）
+
+運用上、両方が同時ONになることはない。
+ただしソフトウェアとしては排他制御を入れ、万一両方HIGHになった場合は
+先にONになった側を優先し、後からの入力は無視してログに警告を出すこと。
+
+============================================================
+■ スレッド構成
+============================================================
+- UIスレッド: PySide6メインループ、操作・表示
+- CameraThread (QThread):
+    常時 ZED grab を回す
+    録画モードON時: SVO2録画 + IMU CSV書き出し
+    検出モードON時: 取得フレームを推論スレッドへキューで渡す
+    どちらもOFF時: grabのみ（プレビュー用）
+- InferenceThread (QThread):
+    キューからフレーム取得 → YOLO-seg推論 → a,b計算 → シリアル送信
+    検出モードOFF時はキューを空読みして待機
+    推論結果（a, b, 可視化画像）をUIスレッドへシグナルで通知
+- GpioWatcherThread (QThread):
+    2つのGPIOピンを監視
+    GPIO-A: 録画ON/OFF をシグナルで通知
+    GPIO-B: 検出ON/OFF をシグナルで通知
+
+スレッド間データフロー:
+  CameraThread --[queue.Queue]--> InferenceThread（検出モード時のみ）
+  InferenceThread --[Qt Signal]--> UI（プレビュー・パラメータ表示）
+  CameraThread --[Qt Signal]--> UI（録画モード時のプレビュー）
+  GpioWatcherThread --[Qt Signal]--> CameraThread / InferenceThread
+  UIボタン --[Qt Signal]--> CameraThread / InferenceThread
+
+============================================================
+■ モード遷移の詳細
+============================================================
+状態は3つ: IDLE / RECORDING / DETECTING
+
+IDLE → RECORDING:
+  GPIO-A HIGH or 録画ボタン押下
+  → SVO2録画開始、IMU CSV開始
+  → プレビューはカメラ生映像
+
+IDLE → DETECTING:
+  GPIO-B HIGH or 検出ボタン押下
+  → YOLO推論開始、シリアル送信開始
+  → プレビューは推論結果重畳映像
+
+RECORDING → IDLE:
+  GPIO-A LOW or 停止ボタン押下
+  → SVO2録画停止、IMU CSV close
+
+DETECTING → IDLE:
+  GPIO-B LOW or 停止ボタン押下
+  → 推論停止、シリアル送信停止
+
+RECORDING → DETECTING / DETECTING → RECORDING:
+  直接遷移は禁止。先にIDLEに戻してから切り替え。
+  万一発生した場合はログに警告を出し、後からの入力を無視。
+
+============================================================
+■ 流用する既存関数（image_ridge_detector.py から）
+============================================================
+以下の関数はロジックをそのまま流用し、共通モジュールに切り出すこと:
+- get_runs()
+- calculate_line_ransac() / calculate_line_polyfit()
+- line_points_to_ab()
+- build_ubx_nav_relposned() / ubx_checksum()
+- process_image()
+- visualize_result()
+
+============================================================
+■ GUI構成
+============================================================
+既存の zed_recoder_gui.py のレイアウトを拡張:
+
+【プレビューエリア】
+- IDLE/RECORDING時: カメラ生映像
+- DETECTING時: 推論結果重畳映像（マスク・中心点・検出直線・a,b値）
+- プレビューON/OFFチェックボックス
+- プレビューFPSはデシメーションで制御（デフォルト15fps）
+
+【モードコントロール】（既存のREC/STOPを拡張）
+- 録画開始 / 録画停止 ボタン
+- 検出開始 / 検出停止 ボタン
+- 現在のモード表示（IDLE / RECORDING / DETECTING）を
+  色分けで明示（IDLE:グレー, RECORDING:赤, DETECTING:緑）
+
+【GPIO状態パネル】
+- GPIO-A（録画）: HIGH/LOW インジケーター + ピン番号
+- GPIO-B（検出）: HIGH/LOW インジケーター + ピン番号
+- GPIO有効/無効チェックボックス
+
+【検出パラメータ表示】（検出モード時のみ更新）
+- a, b の現在値
+- 推論FPS
+- シリアル送信状態（接続/未接続/送信カウント）
+
+【ステータスバー】
+- 現在モード / 録画経過時間 / IMU有無 / 保存先パス
+
+【ログエリア】
+- QPlainTextEdit（既存と同様）
+
+============================================================
+■ コマンドライン引数
+============================================================
+# カメラ
+--save-dir           SVO2保存先（デフォルト: ~/zed_records）
+--camera-fps         カメラFPS（デフォルト: 30）
+--camera-resolution  カメラ解像度（デフォルト: HD720）
+
+# 推論（検出モード用）
+--model              YOLOモデルパス（デフォルト: yolo11s-seg.pt）
+--conf               信頼度閾値（デフォルト: 0.25）
+--half               FP16推論（デフォルト: 有効）
+--process-width      推論解像度の横幅（デフォルト: 640）
+--target-class       対象クラスID（デフォルト: None = 全クラス）
+--fitting-mode       polyfit / ransac（デフォルト: ransac）
+--num-lines          スキャン本数（デフォルト: 20）
+--inference-fps      推論フレームレート上限（デフォルト: 10）
+
+# シリアル（検出モード用）
+--serial-port        シリアルポート（デフォルト: None = 送信無効）
+--serial-baud        ボーレート（デフォルト: 115200）
+
+# GPIO
+--gpio-rec-pin       録画用GPIOピン番号（デフォルト: None = GPIO録画無効）
+--gpio-det-pin       検出用GPIOピン番号（デフォルト: None = GPIO検出無効）
+--debounce-ms        デバウンス時間ms（デフォルト: 500）
+
+============================================================
+■ 安全要件・フォールバック
+============================================================
+- GPIO:
+  Jetson.GPIO インポート失敗 or ピン未指定の場合、
+  該当GPIO機能を個別に無効化しGUIボタンのみで動作すること
+  （例: --gpio-rec-pin のみ指定 → 録画はGPIO+GUI、検出はGUIのみ）
+
+- モード排他:
+  RECORDING中に検出開始要求 → 無視＋警告ログ
+  DETECTING中に録画開始要求 → 無視＋警告ログ
+  GUIボタンも同様（アクティブモード中は他方のボタンをdisabled）
+
+- シリアル:
+  pyserial 未インストール or --serial-port 未指定の場合、
+  シリアル送信を無効化（a,b計算・表示は継続）
+
+- 推論:
+  検出モード中も、推論遅延でカメラgrabは止めないこと
+  キュー溢れ時は古いフレームを破棄（maxsize=2）
+
+- 終了:
+  Ctrl+C およびウィンドウ閉じで、現在のモードに応じて:
+  SVO2録画停止 → CSV close → シリアルclose →
+  GPIO.cleanup() → ZED close
+  を確実に実行
+
+============================================================
+■ ファイル構成
+============================================================
+project/
+├── main.py                  # エントリーポイント、引数パース、アプリ起動
+├── gui/
+│   └── main_window.py       # MainWindow（PySide6）
+├── workers/
+│   ├── camera_worker.py     # CameraThread（ZED grab + SVO2録画 + IMU）
+│   ├── inference_worker.py  # InferenceThread（YOLO推論 + シリアル送信）
+│   └── gpio_worker.py       # GpioWatcherThread（2ピン監視）
+├── core/
+│   ├── ridge_detection.py   # 畦畔検出ロジック（既存関数の切り出し）
+│   ├── ubx_protocol.py      # UBXメッセージ構築
+│   └── visualization.py     # 可視化関数
+└── README.md                # 使い方・引数一覧・環境構築手順
+
+============================================================
+■ ターゲット環境
+============================================================
+- Jetson Orin Nano, Ubuntu 22.04, Python 3.10
+- ZED SDK 5.x + pyzed.sl
+- CUDA対応（YOLO推論）
+- 目標: 検出モード時に推論10fps以上、録画モード時は30fps維持

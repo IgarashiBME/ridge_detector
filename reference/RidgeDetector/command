@@ -1,0 +1,2 @@
+python main.py --save-dir ~/zed_records --gpio-rec-pin 31 --gpio-det-pin 33
+

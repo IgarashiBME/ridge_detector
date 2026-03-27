@@ -1,0 +1,356 @@
+/* Ridge Detector v2 PWA Styles */
+:root {
+  --bg: #1a1a2e;
+  --surface: #16213e;
+  --surface2: #0f3460;
+  --accent: #e94560;
+  --accent2: #0f9b58;
+  --text: #eee;
+  --text2: #aaa;
+  --border: #333;
+  --recording: #cc0000;
+  --detecting: #00aa00;
+  --training: #cc8800;
+  --idle: #666;
+}
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', system-ui, sans-serif;
+  background: var(--bg);
+  color: var(--text);
+  min-height: 100vh;
+  overflow-x: hidden;
+}
+
+/* Navigation */
+nav {
+  display: flex;
+  background: var(--surface);
+  border-bottom: 1px solid var(--border);
+  padding: 0;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+
+nav a {
+  flex: 1;
+  text-align: center;
+  padding: 12px 8px;
+  color: var(--text2);
+  text-decoration: none;
+  font-size: 13px;
+  border-bottom: 2px solid transparent;
+  transition: all 0.2s;
+}
+
+nav a.active {
+  color: var(--text);
+  border-bottom-color: var(--accent);
+}
+
+nav a:hover { color: var(--text); }
+
+/* Pages */
+.page { display: none; padding: 12px; }
+.page.active { display: block; }
+
+/* Cards */
+.card {
+  background: var(--surface);
+  border-radius: 8px;
+  padding: 16px;
+  margin-bottom: 12px;
+}
+
+.card h3 {
+  font-size: 14px;
+  color: var(--text2);
+  margin-bottom: 8px;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+}
+
+/* Mode badge */
+.mode-badge {
+  display: inline-block;
+  padding: 6px 16px;
+  border-radius: 4px;
+  font-weight: bold;
+  font-size: 16px;
+  text-align: center;
+}
+
+.mode-IDLE { background: var(--idle); }
+.mode-RECORDING { background: var(--recording); }
+.mode-DETECTING { background: var(--detecting); }
+.mode-TRAINING { background: var(--training); }
+
+/* Buttons */
+.btn {
+  display: inline-block;
+  padding: 10px 20px;
+  border: none;
+  border-radius: 6px;
+  font-size: 14px;
+  font-weight: 600;
+  cursor: pointer;
+  transition: opacity 0.2s;
+  color: white;
+}
+
+.btn:disabled { opacity: 0.4; cursor: not-allowed; }
+.btn:hover:not(:disabled) { opacity: 0.85; }
+
+.btn-record { background: var(--recording); }
+.btn-detect { background: var(--detecting); }
+.btn-train { background: var(--training); }
+.btn-stop { background: var(--idle); }
+.btn-danger { background: #cc0000; }
+.btn-primary { background: var(--surface2); }
+
+.btn-row {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+/* Preview */
+#live-preview {
+  width: 100%;
+  max-height: 300px;
+  object-fit: contain;
+  background: #000;
+  border-radius: 8px;
+}
+
+/* Stats grid */
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 8px;
+}
+
+.stat-item {
+  padding: 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  text-align: center;
+}
+
+.stat-value {
+  font-size: 20px;
+  font-weight: bold;
+  font-family: monospace;
+}
+
+.stat-label {
+  font-size: 11px;
+  color: var(--text2);
+  margin-top: 2px;
+}
+
+/* Session list */
+.session-list { list-style: none; }
+
+.session-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 12px;
+  background: var(--bg);
+  border-radius: 6px;
+  margin-bottom: 8px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.session-item:hover { background: var(--surface2); }
+
+.session-info h4 { font-size: 14px; margin-bottom: 4px; }
+.session-info span { font-size: 12px; color: var(--text2); }
+
+.session-meta { text-align: right; font-size: 12px; color: var(--text2); }
+
+/* Frame grid */
+.frame-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(100px, 1fr));
+  gap: 8px;
+}
+
+.frame-thumb {
+  position: relative;
+  aspect-ratio: 4/3;
+  border-radius: 4px;
+  overflow: hidden;
+  cursor: pointer;
+  border: 2px solid transparent;
+}
+
+.frame-thumb img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.frame-thumb.annotated { border-color: var(--accent2); }
+.frame-thumb.selected { border-color: var(--accent); }
+
+.frame-thumb .badge-dot {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--accent2);
+}
+
+/* Annotation canvas */
+#annotation-area {
+  position: relative;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+}
+
+#annotation-canvas {
+  width: 100%;
+  border-radius: 8px;
+  touch-action: none;
+}
+
+/* Progress bar */
+.progress-bar {
+  width: 100%;
+  height: 8px;
+  background: var(--bg);
+  border-radius: 4px;
+  overflow: hidden;
+  margin: 8px 0;
+}
+
+.progress-fill {
+  height: 100%;
+  background: var(--accent2);
+  border-radius: 4px;
+  transition: width 0.3s;
+}
+
+/* Form elements */
+.form-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 0 12px;
+}
+
+.form-group {
+  margin-bottom: 12px;
+}
+
+.form-group label {
+  display: block;
+  font-size: 12px;
+  color: var(--text2);
+  margin-bottom: 4px;
+}
+
+.form-group input, .form-group select {
+  width: 100%;
+  padding: 8px;
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 4px;
+  color: var(--text);
+  font-size: 14px;
+}
+
+/* Log area */
+.log-area {
+  background: #000;
+  border-radius: 4px;
+  padding: 8px;
+  font-family: monospace;
+  font-size: 11px;
+  max-height: 150px;
+  overflow-y: auto;
+  color: var(--text2);
+  line-height: 1.4;
+}
+
+/* Back button */
+.back-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--text2);
+  text-decoration: none;
+  font-size: 13px;
+  margin-bottom: 12px;
+  cursor: pointer;
+}
+
+.back-btn:hover { color: var(--text); }
+
+/* Connection status */
+.connection-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  display: inline-block;
+  margin-right: 4px;
+}
+
+.connection-dot.connected { background: #0f9b58; }
+.connection-dot.disconnected { background: #cc0000; }
+
+/* Training session selection */
+#train-session-list {
+  max-height: 200px;
+  overflow-y: auto;
+}
+
+.train-session-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 8px 12px;
+  background: var(--bg);
+  border-radius: 6px;
+  margin-bottom: 6px;
+  cursor: pointer;
+  transition: background 0.2s;
+}
+
+.train-session-row:hover { background: var(--surface2); }
+
+.train-session-cb {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+  accent-color: var(--accent2);
+}
+
+.train-session-name {
+  flex: 1;
+  font-size: 13px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.train-session-count {
+  font-size: 12px;
+  color: var(--text2);
+  flex-shrink: 0;
+}
+
+/* Empty state */
+.empty-state {
+  text-align: center;
+  padding: 40px 20px;
+  color: var(--text2);
+}

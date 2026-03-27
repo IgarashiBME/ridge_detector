@@ -1,0 +1,15 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(python3:*)",
+      "Bash(python3 -m py_compile:*)",
+      "Bash(source:*)",
+      "Bash(python -c:*)",
+      "Bash(timeout 15 python:*)",
+      "Bash(echo:*)",
+      "Bash(python -m py_compile:*)",
+      "Bash(timeout 20 python:*)",
+      "Bash(gpioget:*)"
+    ]
+  }
+}

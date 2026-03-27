@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, user-scalable=no">
+  <meta name="theme-color" content="#16213e">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+  <title>Ridge Detector</title>
+  <link rel="manifest" href="/manifest.json">
+  <link rel="stylesheet" href="/style.css">
+</head>
+<body>
+
+  <nav id="main-nav">
+    <a href="#/" data-page="dashboard">Dashboard</a>
+    <a href="#/sessions" data-page="sessions">Sessions</a>
+    <a href="#/training" data-page="training">Training</a>
+  </nav>
+
+  <!-- Dashboard -->
+  <div id="page-dashboard" class="page">
+    <div class="card">
+      <h3>Status <span class="connection-dot disconnected" id="ws-dot"></span></h3>
+      <div style="text-align:center; margin: 8px 0;">
+        <span class="mode-badge mode-IDLE" id="mode-badge">IDLE</span>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Live Preview</h3>
+      <img id="live-preview" src="" alt="No preview">
+    </div>
+
+    <div class="card">
+      <h3>Controls</h3>
+      <div class="btn-row">
+        <button class="btn btn-record" id="btn-record" onclick="App.setMode('RECORDING')">Record</button>
+        <button class="btn btn-detect" id="btn-detect" onclick="App.setMode('DETECTING')">Detect</button>
+        <button class="btn btn-stop" id="btn-stop" onclick="App.setMode('IDLE')" disabled>Stop</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Detection</h3>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-value" id="stat-a">--</div>
+          <div class="stat-label">a (slope)</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="stat-b">--</div>
+          <div class="stat-label">b (offset)</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="stat-fps">--</div>
+          <div class="stat-label">FPS</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="stat-serial">--</div>
+          <div class="stat-label">Serial TX</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Log</h3>
+      <div class="log-area" id="log-area"></div>
+    </div>
+  </div>
+
+  <!-- Sessions -->
+  <div id="page-sessions" class="page">
+    <div class="card">
+      <h3>Recording Sessions</h3>
+      <div id="session-list"></div>
+    </div>
+  </div>
+
+  <!-- Annotation (session detail) -->
+  <div id="page-annotation" class="page">
+    <span class="back-btn" onclick="App.navigate('sessions')">&larr; Back to sessions</span>
+    <div class="card">
+      <h3>Frames: <span id="ann-session-name"></span></h3>
+      <div class="frame-grid" id="frame-grid"></div>
+    </div>
+
+    <div class="card" id="ann-editor" style="display:none;">
+      <h3>Annotate: <span id="ann-frame-name"></span></h3>
+      <div id="annotation-area">
+        <canvas id="annotation-canvas"></canvas>
+      </div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-primary" onclick="App.saveAnnotation()">Save</button>
+        <button class="btn btn-danger" onclick="App.clearAnnotation()">Clear</button>
+        <button class="btn btn-stop" onclick="App.deleteAnnotation()">Delete</button>
+      </div>
+      <p style="font-size:11px; color:var(--text2); margin-top:8px;">
+        Tap 4 points on the image to define the ridge region polygon.
+      </p>
+    </div>
+  </div>
+
+  <!-- Training -->
+  <div id="page-training" class="page">
+    <div class="card">
+      <h3>Training Status</h3>
+      <div id="training-status">
+        <p id="training-phase">Not running</p>
+        <div class="progress-bar">
+          <div class="progress-fill" id="training-progress" style="width:0%"></div>
+        </div>
+        <p style="font-size:12px; color:var(--text2);" id="training-detail"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Dataset</h3>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-value" id="stat-total-frames">--</div>
+          <div class="stat-label">Total Frames</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="stat-total-annotated">--</div>
+          <div class="stat-label">Annotated</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Sessions to Use</h3>
+      <div id="train-session-list">
+        <p style="color:var(--text2)">Loading...</p>
+      </div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn" style="font-size:12px; padding:4px 12px;" onclick="App.toggleAllTrainSessions(true)">Select All</button>
+        <button class="btn" style="font-size:12px; padding:4px 12px;" onclick="App.toggleAllTrainSessions(false)">Deselect All</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Start Training</h3>
+      <div class="form-grid">
+        <div class="form-group">
+          <label>Epochs</label>
+          <input type="number" id="train-epochs" value="50" min="1" max="500">
+        </div>
+        <div class="form-group">
+          <label>Batch Size</label>
+          <input type="number" id="train-batch" value="4" min="1" max="32">
+        </div>
+        <div class="form-group">
+          <label>Image Size</label>
+          <input type="number" id="train-imgsize" value="640" min="320" max="1280" step="32">
+        </div>
+        <div class="form-group">
+          <label>Learning Rate (lr0)</label>
+          <input type="number" id="train-lr0" value="0.001" min="0.0001" max="0.1" step="0.0001">
+        </div>
+        <div class="form-group">
+          <label>LR Final Ratio (lrf)</label>
+          <input type="number" id="train-lrf" value="0.1" min="0.001" max="1.0" step="0.001">
+        </div>
+        <div class="form-group">
+          <label>Freeze Layers</label>
+          <input type="number" id="train-freeze" value="10" min="0" max="30">
+        </div>
+        <div class="form-group">
+          <label>Flip UD</label>
+          <input type="number" id="train-flipud" value="0.5" min="0" max="1.0" step="0.1">
+        </div>
+        <div class="form-group">
+          <label>AMP (Mixed Precision)</label>
+          <select id="train-amp">
+            <option value="true" selected>ON</option>
+            <option value="false">OFF</option>
+          </select>
+        </div>
+      </div>
+      <div class="btn-row" style="margin-top:12px;">
+        <button class="btn btn-train" id="btn-train-start" onclick="App.startTraining()">
+          Start Training
+        </button>
+        <button class="btn btn-stop" id="btn-train-stop" onclick="App.stopTraining()" disabled>
+          Stop
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <script src="/app.js"></script>
+</body>
+</html>

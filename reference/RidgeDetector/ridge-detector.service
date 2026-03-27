@@ -1,0 +1,16 @@
+[Unit]
+Description=ZED2 Ridge Detector
+After=graphical.target
+
+[Service]
+Type=simple
+User=ubuntu
+Environment=DISPLAY=:0
+Environment=XAUTHORITY=/home/ubuntu/.Xauthority
+ExecStartPre=/bin/sleep 5
+ExecStart=/home/ubuntu/zed_yolo_venv/bin/python /home/ubuntu/RidgeDetector/main.py --compact
+Restart=on-failure
+RestartSec=5
+
+[Install]
+WantedBy=graphical.target
