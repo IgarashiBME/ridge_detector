@@ -132,9 +132,10 @@ class CameraThread(threading.Thread):
             self._state.append_log("Already recording.")
             return
 
-        ensure_dir(self.save_dir)
+        records_dir = os.path.join(self.save_dir, "records")
+        ensure_dir(records_dir)
         stamp = now_stamp()
-        session_dir = os.path.join(self.save_dir, stamp)
+        session_dir = os.path.join(records_dir, stamp)
         ensure_dir(session_dir)
         frames_dir = os.path.join(session_dir, "frames")
         ensure_dir(frames_dir)

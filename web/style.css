@@ -117,6 +117,27 @@ nav a:hover { color: var(--text); }
   flex-wrap: wrap;
 }
 
+.model-select-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 10px;
+}
+.model-select-row label {
+  white-space: nowrap;
+  color: var(--text2);
+  font-size: 14px;
+}
+.model-select-row select {
+  flex: 1;
+  padding: 6px 8px;
+  background: var(--bg);
+  color: var(--text);
+  border: 1px solid var(--surface2);
+  border-radius: 6px;
+  font-size: 14px;
+}
+
 /* Preview */
 #live-preview {
   width: 100%;

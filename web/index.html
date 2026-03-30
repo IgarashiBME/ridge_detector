@@ -34,6 +34,12 @@
 
     <div class="card">
       <h3>Controls</h3>
+      <div class="model-select-row">
+        <label for="model-select">Model:</label>
+        <select id="model-select" onchange="App.selectModel(this.value)">
+          <option value="">--</option>
+        </select>
+      </div>
       <div class="btn-row">
         <button class="btn btn-record" id="btn-record" onclick="App.setMode('RECORDING')">Record</button>
         <button class="btn btn-detect" id="btn-detect" onclick="App.setMode('DETECTING')">Detect</button>

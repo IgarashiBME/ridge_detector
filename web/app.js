@@ -24,6 +24,7 @@ const App = {
 
     // Initial route
     this.handleRoute();
+    this.loadModels();
 
     // Periodic status fetch as fallback
     setInterval(() => this.fetchStatus(), 3000);
@@ -247,6 +248,7 @@ const App = {
       if (detail) detail.textContent = '';
       if (btnStart) btnStart.disabled = false;
       if (btnStop) btnStop.disabled = true;
+      if (data.phase === 'completed') this.loadModels();
     }
   },
 
@@ -282,6 +284,49 @@ const App = {
         alert(data.detail || data.message || 'Failed');
       }
       this.fetchStatus();
+    } catch (e) {
+      alert('Connection error');
+    }
+  },
+
+  // ----------------------------------------------------------------
+  // Model selection
+  // ----------------------------------------------------------------
+  async loadModels() {
+    try {
+      const res = await fetch('/api/models');
+      const data = await res.json();
+      const select = document.getElementById('model-select');
+      if (!select) return;
+      select.innerHTML = '';
+      const models = data.models || [];
+      for (const m of models) {
+        const opt = document.createElement('option');
+        opt.value = m.path;
+        opt.textContent = `${m.name} (${m.size_mb}MB)`;
+        if (m.path === data.current) opt.selected = true;
+        select.appendChild(opt);
+      }
+      if (models.length === 0) {
+        select.innerHTML = '<option value="">No models</option>';
+      }
+    } catch (e) {
+      // ignore
+    }
+  },
+
+  async selectModel(path) {
+    if (!path) return;
+    try {
+      const res = await fetch('/api/models/select', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ path }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || data.message || 'Failed');
+      }
     } catch (e) {
       alert('Connection error');
     }

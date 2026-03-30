@@ -10,6 +10,7 @@ Polls progress.json written by train_process.py.
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -23,8 +24,10 @@ class TrainingManager:
     """Manages training subprocess lifecycle."""
 
     def __init__(self, state: SharedState, save_dir: str = "~/zed_records",
-                 base_model_path: str = "yolo11s-seg.pt"):
+                 base_model_path: str = "yolo11s-seg.pt",
+                 mode_manager=None):
         self._state = state
+        self._mode_manager = mode_manager
         self.save_dir = os.path.expanduser(save_dir)
         self.base_model_path = base_model_path
         self._process = None
@@ -60,6 +63,19 @@ class TrainingManager:
         run_dir = os.path.join(self.save_dir, "training_runs",
                                time.strftime("%Y%m%d_%H%M%S"))
         os.makedirs(run_dir, exist_ok=True)
+
+        # Save dataset_info.json (which sessions / how many frames)
+        per_session = {}
+        for img_path in dataset_info["images"]:
+            session_name = Path(img_path).parent.parent.name
+            per_session[session_name] = per_session.get(session_name, 0) + 1
+        dataset_info_path = os.path.join(run_dir, "dataset_info.json")
+        with open(dataset_info_path, 'w') as f:
+            json.dump({
+                "sessions": sorted(per_session.keys()),
+                "total_frames": dataset_info["count"],
+                "per_session": per_session,
+            }, f, indent=2)
 
         # Write dataset.yaml
         dataset_yaml = self._create_dataset_yaml(dataset_info, run_dir)
@@ -103,6 +119,13 @@ class TrainingManager:
             loss=0.0, phase="starting",
         )
 
+        # Start stdout reader thread
+        self._stdout_thread = threading.Thread(
+            target=self._read_stdout,
+            daemon=True,
+        )
+        self._stdout_thread.start()
+
         # Start polling thread
         self._poll_thread = threading.Thread(
             target=self._poll_progress,
@@ -123,6 +146,17 @@ class TrainingManager:
                 self._process.kill()
         self._process = None
         self._state.set_training(running=False, phase="stopped")
+
+    def _read_stdout(self):
+        """Read subprocess stdout/stderr and forward to log and terminal."""
+        proc = self._process
+        if proc is None or proc.stdout is None:
+            return
+        for line in proc.stdout:
+            line = line.rstrip('\n')
+            if line:
+                print(f"[train] {line}", flush=True)
+                self._state.append_log(f"[train] {line}")
 
     def _poll_progress(self, result_path: str):
         """Poll progress.json and update SharedState."""
@@ -153,11 +187,15 @@ class TrainingManager:
                     result = json.load(f)
                 new_model = result.get("model_path", "")
                 if new_model and os.path.isfile(new_model):
+                    # Copy to models/ with timestamp
+                    copied = self._copy_model_to_models_dir(new_model)
                     self._state.set_training(
                         running=False, phase="completed",
-                        new_model_path=new_model,
+                        new_model_path=copied or new_model,
                     )
-                    self._state.append_log(f"Training completed. New model: {new_model}")
+                    self._state.append_log(
+                        f"Training completed. New model: {copied or new_model}"
+                    )
                 else:
                     self._state.set_training(running=False, phase="completed")
                     self._state.append_log("Training completed (no model output found).")
@@ -176,6 +214,12 @@ class TrainingManager:
 
         self._process = None
 
+        # Return to IDLE mode
+        if self._mode_manager:
+            from state.mode_manager import Mode
+            if self._state.get_mode() == Mode.TRAINING:
+                self._mode_manager.request_mode(Mode.IDLE, source="training")
+
     def _collect_dataset(self, sessions: list = None) -> dict:
         """Scan sessions for annotated frames.
 
@@ -186,15 +230,16 @@ class TrainingManager:
         images = []
         labels = []
 
-        if not os.path.isdir(self.save_dir):
+        records_dir = os.path.join(self.save_dir, "records")
+        if not os.path.isdir(records_dir):
             return {"count": 0, "images": [], "labels": []}
 
         filter_sessions = set(sessions) if sessions else None
 
-        for session_name in sorted(os.listdir(self.save_dir)):
+        for session_name in sorted(os.listdir(records_dir)):
             if filter_sessions and session_name not in filter_sessions:
                 continue
-            session_path = os.path.join(self.save_dir, session_name)
+            session_path = os.path.join(records_dir, session_name)
             if not os.path.isdir(session_path):
                 continue
             frames_dir = os.path.join(session_path, "frames")
@@ -251,3 +296,34 @@ class TrainingManager:
 
         self._state.append_log(f"Dataset YAML: {yaml_path}")
         return yaml_path
+
+    def _copy_model_to_models_dir(self, model_path: str) -> str:
+        """Copy trained model to {save_dir}/models/ with timestamp name.
+
+        Returns the destination path, or empty string on failure.
+        """
+        try:
+            models_dir = os.path.join(self.save_dir, "models")
+            os.makedirs(models_dir, exist_ok=True)
+
+            # Build name: {base_model_stem}_{run_timestamp}.pt
+            base_stem = Path(self.base_model_path).stem
+            # run_dir is like .../training_runs/YYYYMMDD_HHMMSS/train/weights/best.pt
+            # Extract timestamp from training_runs/{timestamp}
+            parts = Path(model_path).parts
+            run_timestamp = ""
+            for i, p in enumerate(parts):
+                if p == "training_runs" and i + 1 < len(parts):
+                    run_timestamp = parts[i + 1]
+                    break
+            if not run_timestamp:
+                run_timestamp = time.strftime("%Y%m%d_%H%M%S")
+
+            dest_name = f"{base_stem}_{run_timestamp}.pt"
+            dest_path = os.path.join(models_dir, dest_name)
+            shutil.copy2(model_path, dest_path)
+            self._state.append_log(f"Model copied to: {dest_path}")
+            return dest_path
+        except Exception as e:
+            self._state.append_log(f"WARNING: Failed to copy model: {e}")
+            return ""

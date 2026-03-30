@@ -23,12 +23,12 @@ python main.py --no-display
 python main.py --compact
 
 # Full options
-python main.py --compact --save-dir ~/zed_records --serial-port /dev/ttyTHS1 --serial-baud 19200 --inference-fps 30 --capture-probability 0.02 --port 8000
+python main.py --compact --save-dir ~/ridge_data --serial-port /dev/ttyTHS1 --serial-baud 19200 --inference-fps 30 --capture-probability 0.02 --port 8000
 ```
 
 Additional dependencies beyond the reference venv: `pip install fastapi uvicorn websockets`
 
-YOLO model auto-detected from: `./ridge-yolo11s-seg.pt`, `~/RidgeDetector/ridge-yolo11s-seg.pt`, or `./reference/RidgeDetector/ridge-yolo11s-seg.pt`.
+YOLO model auto-detected from `~/ridge_data/models/` (first `.pt` file alphabetically). Place base model here before first run.
 
 ## Architecture
 
@@ -60,16 +60,28 @@ Workers --[SharedState.set_*()]--> FastAPI / DisplayWindow [.get_*()]
 WebSocket: frame (base64 ~5fps), detection, training, status, log
 ```
 
-### Recording Session Structure
+### Data Directory Structure
 
 ```
-~/zed_records/{timestamp}/
-├── recording.svo2    # SVO2 raw data
-├── imu.csv           # IMU log
-├── frames/           # Random JPEG captures (--capture-probability)
-│   └── frame_XXXXXX.jpg
-└── labels/           # YOLO polygon annotations (from PWA)
-    └── frame_XXXXXX.txt    # Format: "0 x1 y1 x2 y2 x3 y3 x4 y4" (normalized)
+~/ridge_data/                          # --save-dir (default)
+├── records/                           # Recording sessions
+│   └── {timestamp}/
+│       ├── recording.svo2             # SVO2 raw data
+│       ├── imu.csv                    # IMU log
+│       ├── frames/                    # Random JPEG captures (--capture-probability)
+│       │   └── frame_XXXXXX.jpg
+│       └── labels/                    # YOLO polygon annotations (from PWA)
+│           └── frame_XXXXXX.txt       # Format: "0 x1 y1 x2 y2 x3 y3 x4 y4" (normalized)
+├── models/                            # YOLO models (auto-detect source)
+│   ├── ridge-yolo11s-seg.pt           # Base model
+│   └── ridge-yolo11s-seg_YYYYMMDD_HHMMSS.pt  # Trained models (auto-copied)
+└── training_runs/                     # Training execution logs
+    └── YYYYMMDD_HHMMSS/
+        ├── dataset_info.json          # Sessions & frame counts used
+        ├── dataset/                   # Symlinked dataset + dataset.yaml
+        ├── train/weights/best.pt      # Original trained weights
+        ├── progress.json
+        └── result.json
 ```
 
 ### Ridge Detection Pipeline (`core/`)
@@ -78,11 +90,11 @@ Copied unchanged from `reference/RidgeDetector/core/`. Pipeline: YOLO-seg mask �
 
 ### FastAPI Server (`server/`)
 
-15 REST endpoints under `/api/` — status, mode control, session CRUD, frame serving, annotation CRUD, model listing, training control, logs. WebSocket at `/ws` with subscribe/channel model. PWA static files served from `web/` at root `/`.
+REST endpoints under `/api/` — status, mode control, session CRUD, frame serving, annotation CRUD, model listing/selection, training control, logs. WebSocket at `/ws` with subscribe/channel model. PWA static files served from `web/` at root `/`.
 
 ### Training System (`training/`)
 
-Uses `subprocess.Popen` for GPU memory isolation (CUDA context freed on process exit). `manager.py` collects annotated frames across all sessions, creates symlinked dataset with `dataset.yaml`, launches `train_process.py`, polls `progress.json` every 2s. On completion, reads `result.json` for new model path.
+Uses `subprocess.Popen` for GPU memory isolation (CUDA context freed on process exit). `manager.py` collects annotated frames across all sessions, creates symlinked dataset with `dataset.yaml`, saves `dataset_info.json` (session/frame metadata), launches `train_process.py`, polls `progress.json` every 2s. On completion, reads `result.json` for new model path and copies `best.pt` to `{save_dir}/models/` with timestamp.
 
 ### PWA (`web/`)
 

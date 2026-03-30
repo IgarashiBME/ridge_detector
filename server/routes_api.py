@@ -42,6 +42,10 @@ class TrainingStartRequest(BaseModel):
     amp: bool = True
 
 
+class ModelSelectRequest(BaseModel):
+    path: str
+
+
 # ----------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------
@@ -55,6 +59,10 @@ def _get_mode_manager(request: Request):
 
 def _get_save_dir(request: Request) -> str:
     return os.path.expanduser(request.app.state.shared_state.save_dir)
+
+
+def _get_records_dir(request: Request) -> str:
+    return os.path.join(_get_save_dir(request), "records")
 
 
 def _sanitize_name(name: str) -> str:
@@ -102,13 +110,13 @@ def set_mode(request: Request, body: ModeRequest):
 # ----------------------------------------------------------------
 @router.get("/sessions")
 def list_sessions(request: Request):
-    save_dir = _get_save_dir(request)
-    if not os.path.isdir(save_dir):
+    records_dir = _get_records_dir(request)
+    if not os.path.isdir(records_dir):
         return []
 
     sessions = []
-    for name in sorted(os.listdir(save_dir), reverse=True):
-        session_path = os.path.join(save_dir, name)
+    for name in sorted(os.listdir(records_dir), reverse=True):
+        session_path = os.path.join(records_dir, name)
         if not os.path.isdir(session_path):
             continue
 
@@ -145,9 +153,9 @@ def list_sessions(request: Request):
 
 @router.delete("/sessions/{name}")
 def delete_session(request: Request, name: str):
-    save_dir = _get_save_dir(request)
+    records_dir = _get_records_dir(request)
     name = _sanitize_name(name)
-    session_path = os.path.join(save_dir, name)
+    session_path = os.path.join(records_dir, name)
 
     if not os.path.isdir(session_path):
         raise HTTPException(404, "Session not found")
@@ -162,10 +170,10 @@ def delete_session(request: Request, name: str):
 # ----------------------------------------------------------------
 @router.get("/sessions/{name}/frames")
 def list_frames(request: Request, name: str):
-    save_dir = _get_save_dir(request)
+    records_dir = _get_records_dir(request)
     name = _sanitize_name(name)
-    frames_dir = os.path.join(save_dir, name, "frames")
-    labels_dir = os.path.join(save_dir, name, "labels")
+    frames_dir = os.path.join(records_dir, name, "frames")
+    labels_dir = os.path.join(records_dir, name, "labels")
 
     if not os.path.isdir(frames_dir):
         raise HTTPException(404, "Session not found")
@@ -186,10 +194,10 @@ def list_frames(request: Request, name: str):
 
 @router.get("/sessions/{name}/frames/{frame}")
 def get_frame(request: Request, name: str, frame: str):
-    save_dir = _get_save_dir(request)
+    records_dir = _get_records_dir(request)
     name = _sanitize_name(name)
     frame = _sanitize_name(frame)
-    frame_path = os.path.join(save_dir, name, "frames", frame)
+    frame_path = os.path.join(records_dir, name, "frames", frame)
 
     if not os.path.isfile(frame_path):
         raise HTTPException(404, "Frame not found")
@@ -202,11 +210,11 @@ def get_frame(request: Request, name: str, frame: str):
 # ----------------------------------------------------------------
 @router.get("/sessions/{name}/frames/{frame}/annotation")
 def get_annotation(request: Request, name: str, frame: str):
-    save_dir = _get_save_dir(request)
+    records_dir = _get_records_dir(request)
     name = _sanitize_name(name)
     frame = _sanitize_name(frame)
     stem = Path(frame).stem
-    label_path = os.path.join(save_dir, name, "labels", f"{stem}.txt")
+    label_path = os.path.join(records_dir, name, "labels", f"{stem}.txt")
 
     if not os.path.isfile(label_path):
         return {"exists": False, "points": []}
@@ -231,13 +239,13 @@ def get_annotation(request: Request, name: str, frame: str):
 
 @router.put("/sessions/{name}/frames/{frame}/annotation")
 def put_annotation(request: Request, name: str, frame: str, body: AnnotationRequest):
-    save_dir = _get_save_dir(request)
+    records_dir = _get_records_dir(request)
     name = _sanitize_name(name)
     frame = _sanitize_name(frame)
     stem = Path(frame).stem
 
     # Verify frame exists
-    frame_path = os.path.join(save_dir, name, "frames", frame)
+    frame_path = os.path.join(records_dir, name, "frames", frame)
     if not os.path.isfile(frame_path):
         raise HTTPException(404, "Frame not found")
 
@@ -250,7 +258,7 @@ def put_annotation(request: Request, name: str, frame: str, body: AnnotationRequ
 
     # Save as YOLO polygon format: class_id x1 y1 x2 y2 x3 y3 x4 y4
     # Coordinates are normalized (0-1)
-    labels_dir = os.path.join(save_dir, name, "labels")
+    labels_dir = os.path.join(records_dir, name, "labels")
     os.makedirs(labels_dir, exist_ok=True)
     label_path = os.path.join(labels_dir, f"{stem}.txt")
 
@@ -266,11 +274,11 @@ def put_annotation(request: Request, name: str, frame: str, body: AnnotationRequ
 
 @router.delete("/sessions/{name}/frames/{frame}/annotation")
 def delete_annotation(request: Request, name: str, frame: str):
-    save_dir = _get_save_dir(request)
+    records_dir = _get_records_dir(request)
     name = _sanitize_name(name)
     frame = _sanitize_name(frame)
     stem = Path(frame).stem
-    label_path = os.path.join(save_dir, name, "labels", f"{stem}.txt")
+    label_path = os.path.join(records_dir, name, "labels", f"{stem}.txt")
 
     if os.path.isfile(label_path):
         os.remove(label_path)
@@ -283,37 +291,42 @@ def delete_annotation(request: Request, name: str, frame: str):
 # ----------------------------------------------------------------
 @router.get("/models")
 def list_models(request: Request):
-    """List available .pt model files."""
-    # Search common locations
-    model_dirs = [
-        os.path.dirname(os.path.abspath(__file__)),
-        os.path.join(os.path.dirname(os.path.abspath(__file__)), '..'),
-        os.path.expanduser('~/RidgeDetector'),
-        os.path.expanduser('~'),
-    ]
-
-    models = set()
-    for d in model_dirs:
-        if not os.path.isdir(d):
-            continue
-        for f in os.listdir(d):
-            if f.endswith('.pt'):
-                full_path = os.path.join(d, f)
-                if os.path.isfile(full_path):
-                    models.add(full_path)
-
-    # Also check training output dirs
+    """List available .pt model files in {save_dir}/models/."""
     save_dir = _get_save_dir(request)
-    train_dir = os.path.join(save_dir, "training_runs")
-    if os.path.isdir(train_dir):
-        for root, dirs, files in os.walk(train_dir):
-            for f in files:
-                if f.endswith('.pt'):
-                    models.add(os.path.join(root, f))
+    models_dir = os.path.join(save_dir, "models")
 
-    return [{"path": p, "name": os.path.basename(p),
-             "size_mb": round(os.path.getsize(p) / (1024*1024), 1)}
-            for p in sorted(models)]
+    models = []
+    if os.path.isdir(models_dir):
+        for f in sorted(os.listdir(models_dir)):
+            if f.endswith('.pt'):
+                full_path = os.path.join(models_dir, f)
+                if os.path.isfile(full_path):
+                    models.append({
+                        "path": full_path,
+                        "name": f,
+                        "size_mb": round(os.path.getsize(full_path) / (1024*1024), 1),
+                    })
+
+    # Include currently loaded model info
+    inference = request.app.state.inference_thread
+    current_model = getattr(inference, 'model_path', '')
+
+    return {"models": models, "current": current_model}
+
+
+@router.post("/models/select")
+def select_model(request: Request, body: ModelSelectRequest):
+    """Select a model for inference."""
+    if not os.path.isfile(body.path):
+        raise HTTPException(404, f"Model file not found: {body.path}")
+    if not body.path.endswith('.pt'):
+        raise HTTPException(400, "Model file must be a .pt file")
+
+    inference = request.app.state.inference_thread
+    inference.reload_model(body.path)
+    state = _get_state(request)
+    state.append_log(f"Model selected: {body.path}")
+    return {"ok": True, "message": f"Model switching to: {os.path.basename(body.path)}"}
 
 
 # ----------------------------------------------------------------

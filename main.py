@@ -24,8 +24,8 @@ def parse_args():
 
     # Camera
     parser.add_argument(
-        '--save-dir', type=str, default='~/zed_records',
-        help='Recording save directory (default: ~/zed_records)')
+        '--save-dir', type=str, default='~/ridge_data',
+        help='Data directory for recordings, models, and training (default: ~/ridge_data)')
     parser.add_argument(
         '--camera-fps', type=int, default=30,
         help='Camera FPS (default: 30)')
@@ -103,18 +103,15 @@ def parse_args():
     if args.no_half:
         args.half = False
 
-    # Auto-detect model path
+    # Auto-detect model path from ~/ridge_data/models/
     if args.model is None:
-        candidates = [
-            os.path.join(os.path.dirname(__file__), 'ridge-yolo11s-seg.pt'),
-            os.path.expanduser('~/RidgeDetector/ridge-yolo11s-seg.pt'),
-            os.path.join(os.path.dirname(__file__),
-                         'reference/RidgeDetector/ridge-yolo11s-seg.pt'),
-        ]
-        for c in candidates:
-            if os.path.isfile(c):
-                args.model = c
-                break
+        models_dir = os.path.expanduser(
+            os.path.join(args.save_dir, 'models'))
+        if os.path.isdir(models_dir):
+            pts = sorted(f for f in os.listdir(models_dir)
+                         if f.endswith('.pt'))
+            if pts:
+                args.model = os.path.join(models_dir, pts[0])
         if args.model is None:
             args.model = 'yolo11s-seg.pt'
 
@@ -170,6 +167,7 @@ def main():
         state=state,
         save_dir=args.save_dir,
         base_model_path=args.model,
+        mode_manager=mode_manager,
     )
 
     # Register mode callbacks
