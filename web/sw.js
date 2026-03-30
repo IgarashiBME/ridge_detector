@@ -1,5 +1,5 @@
 // Service Worker for Ridge Detector PWA
-const CACHE_NAME = 'ridge-detector-v2';
+const CACHE_NAME = 'ridge-detector-v3';
 const ASSETS = [
   '/',
   '/index.html',
@@ -25,12 +25,20 @@ self.addEventListener('activate', event => {
 });
 
 self.addEventListener('fetch', event => {
-  // Network first for API calls, cache first for assets
-  if (event.request.url.includes('/api/') || event.request.url.includes('/ws')) {
-    event.respondWith(fetch(event.request));
-  } else {
-    event.respondWith(
-      caches.match(event.request).then(cached => cached || fetch(event.request))
-    );
+  // Skip non-GET and WebSocket requests
+  if (event.request.method !== 'GET' || event.request.url.includes('/ws')) {
+    return;
   }
+
+  // Network first for all requests, fall back to cache when offline
+  event.respondWith(
+    fetch(event.request)
+      .then(response => {
+        // Update cache with fresh response
+        const clone = response.clone();
+        caches.open(CACHE_NAME).then(cache => cache.put(event.request, clone));
+        return response;
+      })
+      .catch(() => caches.match(event.request))
+  );
 });

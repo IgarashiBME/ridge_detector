@@ -182,7 +182,13 @@ const App = {
   updateStatus(data) {
     if (!data) return;
     const mode = data.mode || 'IDLE';
+    const prevMode = this.currentMode;
     this.currentMode = mode;
+
+    // Reload model list when transitioning from TRAINING to IDLE
+    if (prevMode === 'TRAINING' && mode === 'IDLE') {
+      this.loadModels();
+    }
 
     // Mode badge
     const badge = document.getElementById('mode-badge');
@@ -293,13 +299,14 @@ const App = {
   // Model selection
   // ----------------------------------------------------------------
   async loadModels() {
+    const select = document.getElementById('model-select');
+    if (!select) return;
     try {
       const res = await fetch('/api/models');
+      if (!res.ok) return;
       const data = await res.json();
-      const select = document.getElementById('model-select');
-      if (!select) return;
-      select.innerHTML = '';
       const models = data.models || [];
+      select.innerHTML = '';
       for (const m of models) {
         const opt = document.createElement('option');
         opt.value = m.path;
@@ -311,7 +318,7 @@ const App = {
         select.innerHTML = '<option value="">No models</option>';
       }
     } catch (e) {
-      // ignore
+      // Keep existing options on error
     }
   },
 

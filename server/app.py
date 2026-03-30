@@ -7,15 +7,30 @@ FastAPI application factory.
 
 from pathlib import Path
 
-from fastapi import FastAPI
+from fastapi import FastAPI, Request, Response
 from fastapi.staticfiles import StaticFiles
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from server.routes_api import router as api_router
 from server.routes_ws import router as ws_router
 
 
+class NoCacheHTMLMiddleware(BaseHTTPMiddleware):
+    """Set Cache-Control: no-cache for HTML responses."""
+
+    async def dispatch(self, request: Request, call_next):
+        response: Response = await call_next(request)
+        content_type = response.headers.get("content-type", "")
+        if "text/html" in content_type:
+            response.headers["Cache-Control"] = "no-cache"
+        return response
+
+
 def create_app(state, mode_manager, inference_thread, training_manager) -> FastAPI:
     app = FastAPI(title="Ridge Detector v2", version="2.0.0")
+
+    # Middleware
+    app.add_middleware(NoCacheHTMLMiddleware)
 
     # Store references in app state
     app.state.shared_state = state
