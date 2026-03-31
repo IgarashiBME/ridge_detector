@@ -42,6 +42,8 @@ class ModeManager:
         self._stop_detecting: Optional[Callable] = None
         self._start_training: Optional[Callable] = None
         self._stop_training: Optional[Callable] = None
+        self._start_evaluating: Optional[Callable] = None
+        self._stop_evaluating: Optional[Callable] = None
 
     def register_callbacks(
         self,
@@ -51,6 +53,8 @@ class ModeManager:
         stop_detecting: Optional[Callable] = None,
         start_training: Optional[Callable] = None,
         stop_training: Optional[Callable] = None,
+        start_evaluating: Optional[Callable] = None,
+        stop_evaluating: Optional[Callable] = None,
     ):
         self._start_recording = start_recording
         self._stop_recording = stop_recording
@@ -58,6 +62,8 @@ class ModeManager:
         self._stop_detecting = stop_detecting
         self._start_training = start_training
         self._stop_training = stop_training
+        self._start_evaluating = start_evaluating
+        self._stop_evaluating = stop_evaluating
 
     def request_mode(self, target: Mode, source: str = "API") -> Tuple[bool, str]:
         """Request a mode transition.
@@ -111,6 +117,13 @@ class ModeManager:
             self._state.append_log(f"Training stopped ({source}).")
             return True, "Training stopped"
 
+        if current == Mode.EVALUATING:
+            self._state.set_mode(Mode.IDLE)
+            if self._stop_evaluating:
+                self._stop_evaluating()
+            self._state.append_log(f"Evaluation stopped ({source}).")
+            return True, "Evaluation stopped"
+
         return False, f"Unknown mode: {current}"
 
     def _start_mode(self, target: Mode, source: str) -> Tuple[bool, str]:
@@ -135,6 +148,13 @@ class ModeManager:
                 self._start_training()
             self._state.append_log(f"Training started ({source}).")
             return True, "Training started"
+
+        if target == Mode.EVALUATING:
+            self._state.set_mode(Mode.EVALUATING)
+            if self._start_evaluating:
+                self._start_evaluating()
+            self._state.append_log(f"Evaluation started ({source}).")
+            return True, "Evaluation started"
 
         return False, f"Unknown target mode: {target}"
 

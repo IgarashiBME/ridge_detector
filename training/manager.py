@@ -248,7 +248,7 @@ class TrainingManager:
                 continue
 
             for fname in sorted(os.listdir(frames_dir)):
-                if not fname.endswith('.jpg'):
+                if not fname.lower().endswith(('.jpg', '.jpeg', '.png')):
                     continue
                 stem = Path(fname).stem
                 label_path = os.path.join(labels_dir, f"{stem}.txt")

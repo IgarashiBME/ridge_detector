@@ -61,6 +61,9 @@ const App = {
     } else if (parts[0] === 'training') {
       this.showPage('training');
       this.loadTrainingInfo();
+    } else if (parts[0] === 'evaluation') {
+      this.showPage('evaluation');
+      this.loadEvaluationPage();
     } else {
       this.showPage('dashboard');
     }
@@ -75,6 +78,7 @@ const App = {
       sessions: 'page-sessions',
       annotation: 'page-annotation',
       training: 'page-training',
+      evaluation: 'page-evaluation',
     };
 
     const el = document.getElementById(pageMap[name]);
@@ -86,6 +90,7 @@ const App = {
       sessions: '[data-page="sessions"]',
       annotation: '[data-page="sessions"]',
       training: '[data-page="training"]',
+      evaluation: '[data-page="evaluation"]',
     };
     const navEl = document.querySelector(navMap[name]);
     if (navEl) navEl.classList.add('active');
@@ -95,6 +100,7 @@ const App = {
     if (page === 'sessions') window.location.hash = '#/sessions';
     else if (page === 'dashboard') window.location.hash = '#/';
     else if (page === 'training') window.location.hash = '#/training';
+    else if (page === 'evaluation') window.location.hash = '#/evaluation';
   },
 
   // ----------------------------------------------------------------
@@ -112,7 +118,7 @@ const App = {
         this.updateConnectionDot(true);
         this.ws.send(JSON.stringify({
           type: 'subscribe',
-          channels: ['status', 'detection', 'training', 'log', 'frame']
+          channels: ['status', 'detection', 'training', 'evaluation', 'log', 'frame']
         }));
       };
 
@@ -147,6 +153,9 @@ const App = {
         break;
       case 'training':
         this.updateTraining(msg.data);
+        break;
+      case 'evaluation':
+        this.updateEvaluation(msg.data);
         break;
       case 'log':
         this.appendLogs(msg.data);
@@ -214,6 +223,11 @@ const App = {
     // Training data if present
     if (data.training) {
       this.updateTraining(data.training);
+    }
+
+    // Evaluation data if present
+    if (data.evaluation) {
+      this.updateEvaluation(data.evaluation);
     }
   },
 
@@ -762,6 +776,245 @@ const App = {
     } catch (e) {
       alert('Connection error');
     }
+  },
+
+  // ----------------------------------------------------------------
+  // Evaluation
+  // ----------------------------------------------------------------
+  _evalSessions: [],
+
+  async loadEvaluationPage() {
+    // Load models into eval dropdown
+    await this.loadEvalModels();
+    // Load sessions
+    await this.loadEvalSessions();
+    // Fetch current status
+    try {
+      const res = await fetch('/api/evaluation/status');
+      if (res.ok) {
+        const data = await res.json();
+        this.updateEvaluation(data);
+      }
+    } catch (e) { /* offline */ }
+    // Load history
+    this.loadEvalHistory();
+  },
+
+  async loadEvalModels() {
+    const select = document.getElementById('eval-model-select');
+    if (!select) return;
+    try {
+      const res = await fetch('/api/models');
+      if (!res.ok) return;
+      const data = await res.json();
+      const models = data.models || [];
+      select.innerHTML = '<option value="">--</option>';
+      for (const m of models) {
+        const opt = document.createElement('option');
+        opt.value = m.path;
+        opt.textContent = `${m.name} (${m.size_mb}MB)`;
+        select.appendChild(opt);
+      }
+    } catch (e) { /* offline */ }
+  },
+
+  async loadEvalSessions() {
+    this._evalSessions = [];
+    try {
+      const res = await fetch('/api/sessions');
+      this._evalSessions = await res.json();
+    } catch (e) { /* offline */ }
+    this.renderEvalSessionList(this._evalSessions);
+  },
+
+  renderEvalSessionList(sessions) {
+    const container = document.getElementById('eval-session-list');
+    if (!container) return;
+    const annotated = (sessions || []).filter(s => s.annotated_count > 0);
+    if (annotated.length === 0) {
+      container.innerHTML = '<div class="empty-state">No annotated sessions</div>';
+      return;
+    }
+    container.innerHTML = annotated.map(s => `
+      <label class="train-session-row">
+        <input type="checkbox" class="eval-session-cb" value="${s.name}" checked>
+        <span class="train-session-name">${s.name}</span>
+        <span class="train-session-count">${s.annotated_count} annotated</span>
+      </label>
+    `).join('');
+  },
+
+  toggleAllEvalSessions(checked) {
+    document.querySelectorAll('.eval-session-cb').forEach(cb => {
+      cb.checked = checked;
+    });
+  },
+
+  getSelectedEvalSessions() {
+    const cbs = document.querySelectorAll('.eval-session-cb:checked');
+    return Array.from(cbs).map(cb => cb.value);
+  },
+
+  async startEvaluation() {
+    const modelPath = document.getElementById('eval-model-select').value;
+    if (!modelPath) {
+      alert('Select a model.');
+      return;
+    }
+    const sessions = this.getSelectedEvalSessions();
+    if (sessions.length === 0) {
+      alert('Select at least one session.');
+      return;
+    }
+
+    try {
+      const res = await fetch('/api/evaluation/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          model_path: modelPath,
+          sessions: sessions,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || data.message || 'Failed to start evaluation');
+      }
+      this.fetchStatus();
+    } catch (e) {
+      alert('Connection error');
+    }
+  },
+
+  async stopEvaluation() {
+    try {
+      const res = await fetch('/api/evaluation/stop', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || data.message || 'Failed to stop');
+      }
+      this.fetchStatus();
+    } catch (e) {
+      alert('Connection error');
+    }
+  },
+
+  updateEvaluation(data) {
+    if (!data) return;
+    const phase = document.getElementById('eval-phase');
+    const progress = document.getElementById('eval-progress');
+    const detail = document.getElementById('eval-detail');
+    const btnStart = document.getElementById('btn-eval-start');
+    const btnStop = document.getElementById('btn-eval-stop');
+
+    if (data.running) {
+      const pct = data.total_frames > 0
+        ? Math.round((data.current_frame / data.total_frames) * 100) : 0;
+      if (phase) phase.textContent = `Evaluating: ${data.phase || 'running'} (${data.model_name || ''})`;
+      if (progress) progress.style.width = `${pct}%`;
+      if (detail) detail.textContent =
+        `Frame ${data.current_frame}/${data.total_frames}`;
+      if (btnStart) btnStart.disabled = true;
+      if (btnStop) btnStop.disabled = false;
+    } else {
+      if (data.phase === 'completed') {
+        if (phase) phase.textContent = `Completed: ${data.model_name || ''}`;
+        if (progress) progress.style.width = '100%';
+        if (detail) detail.textContent = `Average IoU: ${Number(data.avg_iou || 0).toFixed(4)}`;
+        // Reload history
+        this.loadEvalHistory();
+      } else {
+        if (phase) phase.textContent = data.phase || 'Not running';
+        if (progress) progress.style.width = '0%';
+        if (detail) detail.textContent = '';
+      }
+      if (btnStart) btnStart.disabled = false;
+      if (btnStop) btnStop.disabled = true;
+    }
+  },
+
+  async loadEvalHistory() {
+    const container = document.getElementById('eval-history-list');
+    if (!container) return;
+
+    // Collect evaluations from all sessions
+    const sessions = this._evalSessions.length > 0
+      ? this._evalSessions
+      : await fetch('/api/sessions').then(r => r.json()).catch(() => []);
+
+    const allEvals = [];
+    for (const s of sessions) {
+      try {
+        const res = await fetch(`/api/sessions/${s.name}/evaluations`);
+        if (res.ok) {
+          const evals = await res.json();
+          for (const ev of evals) {
+            ev.session = s.name;
+            allEvals.push(ev);
+          }
+        }
+      } catch (e) { /* skip */ }
+    }
+
+    if (allEvals.length === 0) {
+      container.innerHTML = '<p style="color:var(--text2)">No past evaluations</p>';
+      return;
+    }
+
+    // Sort by timestamp descending
+    allEvals.sort((a, b) => (b.timestamp || '').localeCompare(a.timestamp || ''));
+
+    container.innerHTML = allEvals.map(ev => `
+      <div class="eval-history-item"
+           onclick="App.loadEvalResult('${ev.session}', '${ev.filename}')">
+        <div>
+          <strong>${ev.model_name}</strong>
+          <br><span style="font-size:11px; color:var(--text2)">${ev.session} | ${ev.timestamp}</span>
+        </div>
+        <div style="text-align:right;">
+          <span style="font-size:18px; font-weight:600; color:var(--accent);">${Number(ev.avg_iou).toFixed(3)}</span>
+          <br><span style="font-size:11px; color:var(--text2)">${ev.total_frames} frames</span>
+        </div>
+      </div>
+    `).join('');
+  },
+
+  async loadEvalResult(session, filename) {
+    try {
+      const res = await fetch(`/api/sessions/${session}/evaluations/${filename}`);
+      if (!res.ok) return;
+      const data = await res.json();
+      this.displayEvalResults(data);
+    } catch (e) {
+      alert('Failed to load evaluation result');
+    }
+  },
+
+  displayEvalResults(data) {
+    const card = document.getElementById('eval-results-card');
+    if (!card) return;
+    card.style.display = 'block';
+
+    const modelEl = document.getElementById('eval-results-model');
+    const avgEl = document.getElementById('eval-avg-iou');
+    const framesEl = document.getElementById('eval-total-frames');
+    const tbody = document.getElementById('eval-results-tbody');
+
+    if (modelEl) modelEl.textContent = data.model_name || '';
+    if (avgEl) avgEl.textContent = Number(data.avg_iou || 0).toFixed(4);
+    if (framesEl) framesEl.textContent = `${data.evaluated_frames || 0}/${data.total_frames || 0}`;
+
+    if (tbody) {
+      const rows = (data.per_frame || []).map(f => {
+        const iouText = f.iou != null ? Number(f.iou).toFixed(4) : 'error';
+        const iouClass = f.iou != null ? (f.iou >= 0.7 ? 'iou-good' : f.iou >= 0.4 ? 'iou-mid' : 'iou-low') : 'iou-error';
+        return `<tr><td>${f.session || ''}</td><td>${f.frame || ''}</td><td class="${iouClass}">${iouText}</td></tr>`;
+      });
+      tbody.innerHTML = rows.join('');
+    }
+
+    // Scroll to results
+    card.scrollIntoView({ behavior: 'smooth' });
   },
 };
 

@@ -16,6 +16,7 @@
     <a href="#/" data-page="dashboard">Dashboard</a>
     <a href="#/sessions" data-page="sessions">Sessions</a>
     <a href="#/training" data-page="training">Training</a>
+    <a href="#/evaluation" data-page="evaluation">Evaluation</a>
   </nav>
 
   <!-- Dashboard -->
@@ -191,6 +192,78 @@
         <button class="btn btn-stop" id="btn-train-stop" onclick="App.stopTraining()" disabled>
           Stop
         </button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Evaluation -->
+  <div id="page-evaluation" class="page">
+    <div class="card">
+      <h3>Evaluation Status</h3>
+      <div id="eval-status">
+        <p id="eval-phase">Not running</p>
+        <div class="progress-bar">
+          <div class="progress-fill" id="eval-progress" style="width:0%"></div>
+        </div>
+        <p style="font-size:12px; color:var(--text2);" id="eval-detail"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Model</h3>
+      <div class="model-select-row">
+        <label for="eval-model-select">Model:</label>
+        <select id="eval-model-select">
+          <option value="">--</option>
+        </select>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Sessions</h3>
+      <div id="eval-session-list">
+        <p style="color:var(--text2)">Loading...</p>
+      </div>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn" style="font-size:12px; padding:4px 12px;" onclick="App.toggleAllEvalSessions(true)">Select All</button>
+        <button class="btn" style="font-size:12px; padding:4px 12px;" onclick="App.toggleAllEvalSessions(false)">Deselect All</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Run Evaluation</h3>
+      <div class="btn-row">
+        <button class="btn btn-primary" id="btn-eval-start" onclick="App.startEvaluation()">Run Evaluation</button>
+        <button class="btn btn-stop" id="btn-eval-stop" onclick="App.stopEvaluation()" disabled>Stop</button>
+      </div>
+    </div>
+
+    <div class="card" id="eval-results-card" style="display:none;">
+      <h3>Results: <span id="eval-results-model"></span></h3>
+      <div class="stats-grid" style="margin-bottom:12px;">
+        <div class="stat-item">
+          <div class="stat-value" id="eval-avg-iou">--</div>
+          <div class="stat-label">Average IoU</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="eval-total-frames">--</div>
+          <div class="stat-label">Frames</div>
+        </div>
+      </div>
+      <div style="max-height:400px; overflow-y:auto;">
+        <table class="eval-table">
+          <thead>
+            <tr><th>Session</th><th>Frame</th><th>IoU</th></tr>
+          </thead>
+          <tbody id="eval-results-tbody"></tbody>
+        </table>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Past Evaluations</h3>
+      <div id="eval-history-list">
+        <p style="color:var(--text2)">No past evaluations</p>
       </div>
     </div>
   </div>

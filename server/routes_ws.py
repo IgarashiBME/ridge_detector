@@ -46,7 +46,7 @@ async def websocket_endpoint(ws: WebSocket):
     state = ws.app.state.shared_state
 
     # Default subscriptions
-    channels = {"status", "detection", "training", "log", "frame"}
+    channels = {"status", "detection", "training", "evaluation", "log", "frame"}
 
     # Track what was last sent to avoid redundant updates
     last_mode = None
@@ -108,6 +108,20 @@ async def websocket_endpoint(ws: WebSocket):
                         "total_epochs": t.total_epochs,
                         "loss": t.loss,
                         "phase": t.phase,
+                    }})
+
+            # Evaluation updates
+            if "evaluation" in channels:
+                if state.evaluation_updated.is_set():
+                    state.evaluation_updated.clear()
+                    ev = state.get_evaluation()
+                    await ws.send_json({"type": "evaluation", "data": {
+                        "running": ev.running,
+                        "current_frame": ev.current_frame,
+                        "total_frames": ev.total_frames,
+                        "phase": ev.phase,
+                        "model_name": ev.model_name,
+                        "avg_iou": ev.avg_iou,
                     }})
 
             # Log updates

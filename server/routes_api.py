@@ -46,6 +46,13 @@ class ModelSelectRequest(BaseModel):
     path: str
 
 
+class EvaluationStartRequest(BaseModel):
+    model_path: str
+    sessions: List[str]
+    img_size: int = 640
+    conf: float = 0.25
+
+
 # ----------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------
@@ -126,7 +133,7 @@ def list_sessions(request: Request):
         frame_count = 0
         if os.path.isdir(frames_dir):
             frame_count = len([
-                f for f in os.listdir(frames_dir) if f.endswith('.jpg')
+                f for f in os.listdir(frames_dir) if f.lower().endswith(('.jpg', '.jpeg', '.png'))
             ])
 
         annotated_count = 0
@@ -202,7 +209,8 @@ def get_frame(request: Request, name: str, frame: str):
     if not os.path.isfile(frame_path):
         raise HTTPException(404, "Frame not found")
 
-    return FileResponse(frame_path, media_type="image/jpeg")
+    media = "image/png" if frame_path.lower().endswith('.png') else "image/jpeg"
+    return FileResponse(frame_path, media_type=media)
 
 
 # ----------------------------------------------------------------
@@ -381,3 +389,95 @@ def training_status(request: Request):
 def get_logs(request: Request, n: int = 50):
     state = _get_state(request)
     return state.get_logs(last_n=n)
+
+
+# ----------------------------------------------------------------
+# Evaluation
+# ----------------------------------------------------------------
+@router.post("/evaluation/start")
+def evaluation_start(request: Request, body: EvaluationStartRequest):
+    em = request.app.state.evaluation_manager
+    mm = _get_mode_manager(request)
+
+    ok, msg = mm.request_mode(Mode.EVALUATING, source="API")
+    if not ok:
+        raise HTTPException(409, msg)
+
+    try:
+        em.start(
+            model_path=body.model_path,
+            sessions=body.sessions,
+            img_size=body.img_size,
+            conf=body.conf,
+        )
+    except Exception as e:
+        mm.request_mode(Mode.IDLE, source="API")
+        raise HTTPException(500, str(e))
+
+    return {"ok": True, "message": "Evaluation started"}
+
+
+@router.post("/evaluation/stop")
+def evaluation_stop(request: Request):
+    mm = _get_mode_manager(request)
+    ok, msg = mm.request_mode(Mode.IDLE, source="API")
+    if not ok:
+        raise HTTPException(409, msg)
+    return {"ok": True, "message": msg}
+
+
+@router.get("/evaluation/status")
+def evaluation_status(request: Request):
+    state = _get_state(request)
+    return state.get_evaluation().__dict__
+
+
+@router.get("/sessions/{name}/evaluations")
+def list_session_evaluations(request: Request, name: str):
+    """List evaluation result JSONs in a session directory."""
+    records_dir = _get_records_dir(request)
+    name = _sanitize_name(name)
+    session_dir = os.path.join(records_dir, name)
+
+    if not os.path.isdir(session_dir):
+        raise HTTPException(404, "Session not found")
+
+    evaluations = []
+    for f in sorted(os.listdir(session_dir), reverse=True):
+        if not f.startswith("evaluation_") or not f.endswith(".json"):
+            continue
+        filepath = os.path.join(session_dir, f)
+        try:
+            import json
+            with open(filepath, 'r') as fh:
+                data = json.load(fh)
+            evaluations.append({
+                "filename": f,
+                "model_name": data.get("model_name", ""),
+                "timestamp": data.get("timestamp", ""),
+                "avg_iou": data.get("avg_iou", 0.0),
+                "total_frames": data.get("total_frames", 0),
+            })
+        except (json.JSONDecodeError, IOError):
+            continue
+
+    return evaluations
+
+
+@router.get("/sessions/{name}/evaluations/{filename}")
+def get_session_evaluation(request: Request, name: str, filename: str):
+    """Get a specific evaluation result JSON."""
+    records_dir = _get_records_dir(request)
+    name = _sanitize_name(name)
+    filename = _sanitize_name(filename)
+
+    if not filename.startswith("evaluation_") or not filename.endswith(".json"):
+        raise HTTPException(400, "Invalid evaluation filename")
+
+    filepath = os.path.join(records_dir, name, filename)
+    if not os.path.isfile(filepath):
+        raise HTTPException(404, "Evaluation result not found")
+
+    import json
+    with open(filepath, 'r') as f:
+        return json.load(f)

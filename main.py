@@ -170,10 +170,18 @@ def main():
         mode_manager=mode_manager,
     )
 
+    # Evaluation manager
+    from evaluation.manager import EvaluationManager
+    evaluation_manager = EvaluationManager(
+        state=state,
+        save_dir=args.save_dir,
+        mode_manager=mode_manager,
+    )
+
     # Register mode callbacks
-    # Note: start_training is None here because training is started via API
-    # with parameters (epochs, batch_size, img_size). The mode transition
-    # happens in routes_api.py before calling training_manager.start().
+    # Note: start_training/start_evaluating are None because they are started
+    # via API with parameters. The mode transition happens in routes_api.py
+    # before calling the respective manager.start().
     mode_manager.register_callbacks(
         start_recording=camera.start_recording,
         stop_recording=camera.stop_recording,
@@ -181,6 +189,8 @@ def main():
         stop_detecting=lambda: (inference.stop_detecting(), camera.stop_detecting()),
         start_training=None,
         stop_training=lambda: training_manager.stop(),
+        start_evaluating=None,
+        stop_evaluating=lambda: evaluation_manager.stop(),
     )
 
     # Start workers
@@ -194,6 +204,7 @@ def main():
         mode_manager=mode_manager,
         inference_thread=inference,
         training_manager=training_manager,
+        evaluation_manager=evaluation_manager,
         host=args.host,
         port=args.port,
     )
@@ -220,7 +231,8 @@ def main():
         _run_headless(state, mode_manager, camera, inference)
 
     # Shutdown
-    _shutdown(state, mode_manager, camera, inference, training_manager)
+    _shutdown(state, mode_manager, camera, inference, training_manager,
+              evaluation_manager)
 
 
 def _run_headless(state, mode_manager, camera, inference):
@@ -239,15 +251,18 @@ def _run_headless(state, mode_manager, camera, inference):
     shutdown_event.wait()
 
 
-def _shutdown(state, mode_manager, camera, inference, training_manager):
+def _shutdown(state, mode_manager, camera, inference, training_manager,
+              evaluation_manager=None):
     """Graceful shutdown of all components."""
     state.append_log("Shutting down...")
 
     # Stop current mode
     mode_manager.shutdown("shutdown")
 
-    # Stop training if running
+    # Stop training/evaluation if running
     training_manager.stop()
+    if evaluation_manager:
+        evaluation_manager.stop()
 
     # Stop workers
     inference.request_stop()

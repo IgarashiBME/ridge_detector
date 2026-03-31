@@ -23,6 +23,7 @@ class Mode(str, Enum):
     RECORDING = "RECORDING"
     DETECTING = "DETECTING"
     TRAINING = "TRAINING"
+    EVALUATING = "EVALUATING"
 
 
 @dataclass
@@ -43,6 +44,16 @@ class TrainingStatus:
     loss: float = 0.0
     phase: str = ""
     new_model_path: str = ""
+
+
+@dataclass
+class EvaluationStatus:
+    running: bool = False
+    current_frame: int = 0
+    total_frames: int = 0
+    phase: str = ""
+    model_name: str = ""
+    avg_iou: float = 0.0
 
 
 class SharedState:
@@ -68,6 +79,9 @@ class SharedState:
         # Training
         self._training = TrainingStatus()
 
+        # Evaluation
+        self._evaluation = EvaluationStatus()
+
         # Log ring buffer
         self._log_entries: deque = deque(maxlen=200)
 
@@ -82,6 +96,7 @@ class SharedState:
         self.mode_changed = threading.Event()
         self.detection_updated = threading.Event()
         self.training_updated = threading.Event()
+        self.evaluation_updated = threading.Event()
         self.frame_updated = threading.Event()
         self.log_updated = threading.Event()
 
@@ -192,6 +207,27 @@ class SharedState:
         self.training_updated.set()
 
     # ----------------------------------------------------------------
+    # Evaluation
+    # ----------------------------------------------------------------
+    def get_evaluation(self) -> EvaluationStatus:
+        with self._lock:
+            return EvaluationStatus(
+                running=self._evaluation.running,
+                current_frame=self._evaluation.current_frame,
+                total_frames=self._evaluation.total_frames,
+                phase=self._evaluation.phase,
+                model_name=self._evaluation.model_name,
+                avg_iou=self._evaluation.avg_iou,
+            )
+
+    def set_evaluation(self, **kwargs):
+        with self._lock:
+            for k, v in kwargs.items():
+                if hasattr(self._evaluation, k):
+                    setattr(self._evaluation, k, v)
+        self.evaluation_updated.set()
+
+    # ----------------------------------------------------------------
     # Camera info
     # ----------------------------------------------------------------
     def get_camera_info(self) -> dict:
@@ -256,5 +292,13 @@ class SharedState:
                     "total_epochs": self._training.total_epochs,
                     "loss": self._training.loss,
                     "phase": self._training.phase,
+                },
+                "evaluation": {
+                    "running": self._evaluation.running,
+                    "current_frame": self._evaluation.current_frame,
+                    "total_frames": self._evaluation.total_frames,
+                    "phase": self._evaluation.phase,
+                    "model_name": self._evaluation.model_name,
+                    "avg_iou": self._evaluation.avg_iou,
                 },
             }
