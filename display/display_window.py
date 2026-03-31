@@ -201,6 +201,6 @@ def run_display(state: SharedState, compact: bool = False):
     signal.signal(signal.SIGINT, signal.SIG_DFL)
 
     window = DisplayWindow(state, compact=compact)
-    window.show()
+    window.showMaximized()
 
     app.exec()
