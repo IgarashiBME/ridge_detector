@@ -108,6 +108,7 @@ nav a:hover { color: var(--text); }
 .btn-detect { background: var(--detecting); }
 .btn-train { background: var(--training); }
 .btn-stop { background: var(--idle); }
+.btn-secondary { background: #555; }
 .btn-danger { background: #cc0000; }
 .btn-primary { background: var(--surface2); }
 

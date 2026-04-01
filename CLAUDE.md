@@ -23,7 +23,7 @@ python main.py --no-display
 python main.py --compact
 
 # Full options
-python main.py --compact --save-dir ~/ridge_data --serial-port /dev/ttyTHS1 --serial-baud 19200 --inference-fps 30 --capture-probability 0.02 --port 8000
+python main.py --compact --serial-port /dev/ttyTHS1 --serial-baud 19200 --inference-fps 30 --capture-probability 0.02 --port 8000
 ```
 
 Additional dependencies beyond the reference venv: `pip install fastapi uvicorn websockets`

@@ -379,6 +379,9 @@ const App = {
           <div class="session-meta">
             ${s.svo2_size_mb} MB
             <br>
+            ${s.downloadable && s.frame_count > 0 ? `<a class="btn btn-secondary" style="font-size:11px; padding:4px 8px; margin-top:4px; text-decoration:none; display:inline-block;"
+              href="/api/sessions/${s.name}/download" download
+              onclick="event.stopPropagation()">Download</a>` : ''}
             <button class="btn btn-danger" style="font-size:11px; padding:4px 8px; margin-top:4px;"
               onclick="event.stopPropagation(); App.deleteSession('${s.name}')">Delete</button>
           </div>

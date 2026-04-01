@@ -7,11 +7,13 @@ REST API endpoints for Ridge Detector v2.
 
 import math
 import os
+import tempfile
+import zipfile
 from pathlib import Path
 from typing import List, Optional
 
 from fastapi import APIRouter, HTTPException, Request
-from fastapi.responses import FileResponse, JSONResponse
+from fastapi.responses import FileResponse, JSONResponse, StreamingResponse
 from pydantic import BaseModel
 
 from state.shared_state import Mode
@@ -148,11 +150,16 @@ def list_sessions(request: Request):
         if os.path.isfile(svo2_path):
             svo2_size = os.path.getsize(svo2_path)
 
+        downloadable = not os.path.isfile(
+            os.path.join(session_path, ".nodownload")
+        )
+
         sessions.append({
             "name": name,
             "frame_count": frame_count,
             "annotated_count": annotated_count,
             "svo2_size_mb": round(svo2_size / (1024 * 1024), 1),
+            "downloadable": downloadable,
         })
 
     return sessions
@@ -170,6 +177,49 @@ def delete_session(request: Request, name: str):
     import shutil
     shutil.rmtree(session_path)
     return {"ok": True, "message": f"Session {name} deleted"}
+
+
+@router.get("/sessions/{name}/download")
+def download_session(request: Request, name: str):
+    """Download session frames, labels, and imu.csv as a ZIP file."""
+    records_dir = _get_records_dir(request)
+    name = _sanitize_name(name)
+    session_path = os.path.join(records_dir, name)
+
+    if not os.path.isdir(session_path):
+        raise HTTPException(404, "Session not found")
+
+    if os.path.isfile(os.path.join(session_path, ".nodownload")):
+        raise HTTPException(403, "Download disabled for this session")
+
+    # Build ZIP on disk to avoid memory exhaustion
+    tmp = tempfile.NamedTemporaryFile(suffix=".zip", delete=False)
+    try:
+        with zipfile.ZipFile(tmp, 'w', zipfile.ZIP_STORED) as zf:
+            for subdir in ("frames", "labels"):
+                dir_path = os.path.join(session_path, subdir)
+                if not os.path.isdir(dir_path):
+                    continue
+                for fname in sorted(os.listdir(dir_path)):
+                    fpath = os.path.join(dir_path, fname)
+                    if os.path.isfile(fpath):
+                        zf.write(fpath, f"{subdir}/{fname}")
+            # Include imu.csv if present
+            imu_path = os.path.join(session_path, "imu.csv")
+            if os.path.isfile(imu_path):
+                zf.write(imu_path, "imu.csv")
+        tmp.close()
+    except Exception:
+        tmp.close()
+        os.unlink(tmp.name)
+        raise
+
+    return FileResponse(
+        tmp.name,
+        media_type="application/zip",
+        filename=f"{name}.zip",
+        background=lambda: os.unlink(tmp.name),
+    )
 
 
 # ----------------------------------------------------------------
