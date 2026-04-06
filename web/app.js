@@ -562,43 +562,100 @@ const App = {
     if (el) el.textContent = this._annStepLabel();
   },
 
+  // Find the nearest existing point within a pixel radius threshold.
+  // Returns { line: 'left'|'right', index: 0|1 } or null.
+  _findNearPoint(nx, ny, thresholdPx) {
+    const canvas = this.annCanvas;
+    if (!canvas) return null;
+    const w = canvas.width, h = canvas.height;
+    const thr2 = thresholdPx * thresholdPx;
+    let best = null, bestD = Infinity;
+    const check = (line, name) => {
+      for (let i = 0; i < line.length; i++) {
+        const dx = (line[i][0] - nx) * w;
+        const dy = (line[i][1] - ny) * h;
+        const d2 = dx * dx + dy * dy;
+        if (d2 < thr2 && d2 < bestD) {
+          bestD = d2;
+          best = { line: name, index: i };
+        }
+      }
+    };
+    check(this.annLeftLine, 'left');
+    check(this.annRightLine, 'right');
+    return best;
+  },
+
   setupAnnotationCanvas() {
     const canvas = document.getElementById('annotation-canvas');
     if (!canvas) return;
     this.annCanvas = canvas;
     this.annCtx = canvas.getContext('2d');
 
-    const handler = (e) => {
+    // Drag state
+    let dragging = null; // { line: 'left'|'right', index: 0|1 }
+
+    const getXY = (e) => {
+      const rect = canvas.getBoundingClientRect();
+      let cx, cy;
+      if (e.touches) { cx = e.touches[0].clientX; cy = e.touches[0].clientY; }
+      else { cx = e.clientX; cy = e.clientY; }
+      return [
+        Math.max(0, Math.min(1, (cx - rect.left) / rect.width)),
+        Math.max(0, Math.min(1, (cy - rect.top) / rect.height)),
+      ];
+    };
+
+    const onDown = (e) => {
       e.preventDefault();
       if (!this.annImage) return;
-      const total = this.annLeftLine.length + this.annRightLine.length;
-      if (total >= 4) return;
+      const [x, y] = getXY(e);
 
-      const rect = canvas.getBoundingClientRect();
-      let clientX, clientY;
-      if (e.touches) {
-        clientX = e.touches[0].clientX;
-        clientY = e.touches[0].clientY;
-      } else {
-        clientX = e.clientX;
-        clientY = e.clientY;
+      // Check if near an existing point → start drag
+      const hit = this._findNearPoint(x, y, 24);
+      if (hit) {
+        dragging = hit;
+        return;
       }
 
-      const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
-      const y = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
+      // Otherwise add new point if not full
+      const total = this.annLeftLine.length + this.annRightLine.length;
+      if (total >= 4) return;
 
       if (this.annLeftLine.length < 2) {
         this.annLeftLine.push([x, y]);
       } else {
         this.annRightLine.push([x, y]);
       }
-
       this._updateStepIndicator();
       this.drawAnnotation();
     };
 
-    canvas.addEventListener('click', handler);
-    canvas.addEventListener('touchstart', handler, { passive: false });
+    const onMove = (e) => {
+      if (!dragging) return;
+      e.preventDefault();
+      const [x, y] = getXY(e);
+      const arr = dragging.line === 'left' ? this.annLeftLine : this.annRightLine;
+      arr[dragging.index] = [x, y];
+      this.drawAnnotation();
+    };
+
+    const onUp = (e) => {
+      if (dragging) {
+        dragging = null;
+        this._updateStepIndicator();
+      }
+    };
+
+    // Mouse events
+    canvas.addEventListener('mousedown', onDown);
+    canvas.addEventListener('mousemove', onMove);
+    canvas.addEventListener('mouseup', onUp);
+
+    // Touch events
+    canvas.addEventListener('touchstart', onDown, { passive: false });
+    canvas.addEventListener('touchmove', onMove, { passive: false });
+    canvas.addEventListener('touchend', onUp);
 
     window.addEventListener('resize', () => {
       if (this.annImage) {
