@@ -797,12 +797,16 @@ const App = {
       ctx.closePath();
       ctx.fill();
 
-      // Midline (green)
-      const midP1 = [(this.annLeftLine[0][0] + this.annRightLine[0][0]) / 2,
-                      (this.annLeftLine[0][1] + this.annRightLine[0][1]) / 2];
-      const midP2 = [(this.annLeftLine[1][0] + this.annRightLine[1][0]) / 2,
-                      (this.annLeftLine[1][1] + this.annRightLine[1][1]) / 2];
-      drawExtLine(midP1, midP2, '#00ff00');
+      // Midline (green) — use boundary intersection midpoints, independent of click order
+      const leftHits = this._lineImageIntersections(this.annLeftLine[0], this.annLeftLine[1]);
+      const rightHits = this._lineImageIntersections(this.annRightLine[0], this.annRightLine[1]);
+      if (leftHits.length >= 2 && rightHits.length >= 2) {
+        const midP1 = [(leftHits[0][0] + rightHits[0][0]) / 2,
+                        (leftHits[0][1] + rightHits[0][1]) / 2];
+        const midP2 = [(leftHits[1][0] + rightHits[1][0]) / 2,
+                        (leftHits[1][1] + rightHits[1][1]) / 2];
+        drawExtLine(midP1, midP2, '#00ff00');
+      }
     }
 
     // Draw left line (cyan)
