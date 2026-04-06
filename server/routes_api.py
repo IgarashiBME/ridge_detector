@@ -307,14 +307,14 @@ def put_annotation(request: Request, name: str, frame: str, body: AnnotationRequ
     if not os.path.isfile(frame_path):
         raise HTTPException(404, "Frame not found")
 
-    if len(body.points) != 4:
-        raise HTTPException(400, "Exactly 4 points required")
+    if len(body.points) < 3:
+        raise HTTPException(400, "At least 3 points required")
 
     for p in body.points:
         if len(p) != 2:
             raise HTTPException(400, "Each point must be [x, y]")
 
-    # Save as YOLO polygon format: class_id x1 y1 x2 y2 x3 y3 x4 y4
+    # Save as YOLO polygon format: class_id x1 y1 x2 y2 ... xN yN
     # Coordinates are normalized (0-1)
     labels_dir = os.path.join(records_dir, name, "labels")
     os.makedirs(labels_dir, exist_ok=True)

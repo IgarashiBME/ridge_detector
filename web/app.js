@@ -12,6 +12,7 @@ const App = {
   annPoints: [],       // legacy (kept for computed polygon output)
   annLeftLine: [],     // 2 points defining left edge line
   annRightLine: [],    // 2 points defining right edge line
+  annLoadedPoly: null, // non-null when loaded polygon can't be reconstructed into lines
   annImage: null,
   annCanvas: null,
   annCtx: null,
@@ -449,6 +450,7 @@ const App = {
     this.annPoints = [];
     this.annLeftLine = [];
     this.annRightLine = [];
+    this.annLoadedPoly = null;
 
     // Highlight selection
     document.querySelectorAll('.frame-thumb').forEach(el => el.classList.remove('selected'));
@@ -468,17 +470,22 @@ const App = {
     };
     img.src = `/api/sessions/${this.annSession}/frames/${filename}`;
 
-    // Load existing annotation — reconstruct left/right lines from saved polygon
+    // Load existing annotation
     try {
       const res = await fetch(
         `/api/sessions/${this.annSession}/frames/${filename}/annotation`
       );
       const data = await res.json();
-      if (data.exists && data.points && data.points.length === 4) {
-        // Saved order: leftTop, rightTop, rightBottom, leftBottom
+      if (data.exists && data.points && data.points.length >= 3) {
         const p = data.points;
-        this.annLeftLine = [p[0], p[3]];   // left top, left bottom
-        this.annRightLine = [p[1], p[2]];  // right top, right bottom
+        if (p.length === 4) {
+          // Reconstruct left/right lines from saved quadrilateral
+          this.annLeftLine = [p[0], p[3]];
+          this.annRightLine = [p[1], p[2]];
+        } else {
+          // Variable-length polygon (has corners) — store for display only
+          this.annLoadedPoly = p;
+        }
       }
     } catch (e) { /* no annotation */ }
     this._updateStepIndicator();
@@ -532,19 +539,68 @@ const App = {
     return unique.slice(0, 2);
   },
 
-  // Compute 4-point polygon from left and right edge lines.
-  // Returns array of 4 normalized [x,y] points ordered as a proper quadrilateral, or null.
+  // Which side of directed line p1→p2 is point on? Positive = left, negative = right.
+  _sideOfLine(p1, p2, pt) {
+    return (p2[0] - p1[0]) * (pt[1] - p1[1]) - (p2[1] - p1[1]) * (pt[0] - p1[0]);
+  },
+
+  // Intersection of segment a1-a2 with infinite line b1-b2.
+  _segLineIntersect(a1, a2, b1, b2) {
+    const d1x = a2[0] - a1[0], d1y = a2[1] - a1[1];
+    const d2x = b2[0] - b1[0], d2y = b2[1] - b1[1];
+    const cross = d1x * d2y - d1y * d2x;
+    if (Math.abs(cross) < 1e-12) return a1;
+    const t = ((b1[0] - a1[0]) * d2y - (b1[1] - a1[1]) * d2x) / cross;
+    return [a1[0] + t * d1x, a1[1] + t * d1y];
+  },
+
+  // Sutherland-Hodgman: clip polygon by half-plane (keep side where keepSign matches).
+  _clipPolygonByLine(polygon, lp1, lp2, keepSign) {
+    if (polygon.length === 0) return [];
+    const out = [];
+    for (let i = 0; i < polygon.length; i++) {
+      const cur = polygon[i];
+      const nxt = polygon[(i + 1) % polygon.length];
+      const cSide = this._sideOfLine(lp1, lp2, cur) * keepSign;
+      const nSide = this._sideOfLine(lp1, lp2, nxt) * keepSign;
+      if (cSide >= 0) {
+        out.push(cur);
+        if (nSide < 0) out.push(this._segLineIntersect(cur, nxt, lp1, lp2));
+      } else if (nSide >= 0) {
+        out.push(this._segLineIntersect(cur, nxt, lp1, lp2));
+      }
+    }
+    return out;
+  },
+
+  // Compute polygon from left and right edge lines clipped to image boundary.
+  // Returns array of normalized [x,y] points (4-6 vertices), or null.
   _computePolygonFromLines() {
     if (this.annLeftLine.length < 2 || this.annRightLine.length < 2) return null;
 
-    const leftHits = this._lineImageIntersections(this.annLeftLine[0], this.annLeftLine[1]);
-    const rightHits = this._lineImageIntersections(this.annRightLine[0], this.annRightLine[1]);
+    const L1 = this.annLeftLine[0], L2 = this.annLeftLine[1];
+    const R1 = this.annRightLine[0], R2 = this.annRightLine[1];
 
-    if (leftHits.length < 2 || rightHits.length < 2) return null;
+    // Start with image rectangle
+    let poly = [[0, 0], [1, 0], [1, 1], [0, 1]];
 
-    // Order: leftTop, rightTop, rightBottom, leftBottom (clockwise)
-    const pts = [leftHits[0], rightHits[0], rightHits[1], leftHits[1]];
-    return pts;
+    // Determine which side of the left line the right line is on
+    const rMid = [(R1[0] + R2[0]) / 2, (R1[1] + R2[1]) / 2];
+    const leftKeep = this._sideOfLine(L1, L2, rMid) >= 0 ? 1 : -1;
+    poly = this._clipPolygonByLine(poly, L1, L2, leftKeep);
+
+    // Determine which side of the right line the left line is on
+    const lMid = [(L1[0] + L2[0]) / 2, (L1[1] + L2[1]) / 2];
+    const rightKeep = this._sideOfLine(R1, R2, lMid) >= 0 ? 1 : -1;
+    poly = this._clipPolygonByLine(poly, R1, R2, rightKeep);
+
+    if (poly.length < 3) return null;
+
+    // Clamp to [0,1]
+    for (let i = 0; i < poly.length; i++) {
+      poly[i] = [Math.max(0, Math.min(1, poly[i][0])), Math.max(0, Math.min(1, poly[i][1]))];
+    }
+    return poly;
   },
 
   // Get annotation step label
@@ -684,6 +740,21 @@ const App = {
     const h = canvas.height;
     ctx.drawImage(this.annImage, 0, 0, w, h);
 
+    // If we have a loaded polygon that couldn't be decomposed into lines, draw it
+    if (this.annLoadedPoly && this.annLeftLine.length === 0 && this.annRightLine.length === 0) {
+      const lp = this.annLoadedPoly;
+      ctx.fillStyle = 'rgba(233, 69, 96, 0.18)';
+      ctx.strokeStyle = '#e94560';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(lp[0][0] * w, lp[0][1] * h);
+      for (let i = 1; i < lp.length; i++) ctx.lineTo(lp[i][0] * w, lp[i][1] * h);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      return;
+    }
+
     const leftLen = this.annLeftLine.length;
     const rightLen = this.annRightLine.length;
     if (leftLen === 0 && rightLen === 0) return;
@@ -794,6 +865,7 @@ const App = {
     this.annLeftLine = [];
     this.annRightLine = [];
     this.annPoints = [];
+    this.annLoadedPoly = null;
     this._updateStepIndicator();
     this.drawAnnotation();
   },
@@ -808,6 +880,7 @@ const App = {
       this.annLeftLine = [];
       this.annRightLine = [];
       this.annPoints = [];
+      this.annLoadedPoly = null;
       this._updateStepIndicator();
       this.drawAnnotation();
 
