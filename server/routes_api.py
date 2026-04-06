@@ -48,6 +48,10 @@ class ModelSelectRequest(BaseModel):
     path: str
 
 
+class EmaAlphaRequest(BaseModel):
+    alpha: float
+
+
 class EvaluationStartRequest(BaseModel):
     model_path: str
     sessions: List[str]
@@ -98,6 +102,8 @@ def get_status(request: Request):
     for k in ("a", "b"):
         if k in det:
             det[k] = _nan_to_none(det[k])
+    inference = request.app.state.inference_thread
+    snap["ema_alpha"] = inference.ema_alpha
     return snap
 
 
@@ -385,6 +391,26 @@ def select_model(request: Request, body: ModelSelectRequest):
     state = _get_state(request)
     state.append_log(f"Model selected: {body.path}")
     return {"ok": True, "message": f"Model switching to: {os.path.basename(body.path)}"}
+
+
+# ----------------------------------------------------------------
+# EMA Filter
+# ----------------------------------------------------------------
+@router.get("/ema-alpha")
+def get_ema_alpha(request: Request):
+    inference = request.app.state.inference_thread
+    return {"alpha": inference.ema_alpha}
+
+
+@router.post("/ema-alpha")
+def set_ema_alpha(request: Request, body: EmaAlphaRequest):
+    if not 0.0 <= body.alpha <= 1.0:
+        raise HTTPException(400, "alpha must be between 0.0 and 1.0")
+    inference = request.app.state.inference_thread
+    inference.ema_alpha = body.alpha
+    state = _get_state(request)
+    state.append_log(f"EMA alpha set to {body.alpha:.2f}")
+    return {"ok": True, "alpha": body.alpha}
 
 
 # ----------------------------------------------------------------

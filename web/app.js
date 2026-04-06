@@ -218,6 +218,11 @@ const App = {
     if (btnDet) btnDet.disabled = !isIdle;
     if (btnStop) btnStop.disabled = isIdle;
 
+    // EMA alpha
+    if (data.ema_alpha !== undefined) {
+      this.updateEmaAlpha(data.ema_alpha);
+    }
+
     // Detection data if present
     if (data.detection) {
       this.updateDetection(data.detection);
@@ -354,6 +359,32 @@ const App = {
     } catch (e) {
       alert('Connection error');
     }
+  },
+
+  // ----------------------------------------------------------------
+  // EMA Alpha
+  // ----------------------------------------------------------------
+  onEmaSliderInput(value) {
+    const label = document.getElementById('ema-value');
+    if (label) label.textContent = parseFloat(value).toFixed(2);
+  },
+
+  async setEmaAlpha(value) {
+    const alpha = parseFloat(value);
+    try {
+      await fetch('/api/ema-alpha', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ alpha }),
+      });
+    } catch (e) { /* offline */ }
+  },
+
+  updateEmaAlpha(alpha) {
+    const slider = document.getElementById('ema-slider');
+    const label = document.getElementById('ema-value');
+    if (slider) slider.value = alpha;
+    if (label) label.textContent = parseFloat(alpha).toFixed(2);
   },
 
   // ----------------------------------------------------------------

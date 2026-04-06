@@ -129,7 +129,8 @@ nav a:hover { color: var(--text); }
   color: var(--text2);
   font-size: 14px;
 }
-.model-select-row select {
+.model-select-row select,
+.model-select-row input[type="range"] {
   flex: 1;
   padding: 6px 8px;
   background: var(--bg);
