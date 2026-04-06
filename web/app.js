@@ -9,7 +9,9 @@ const App = {
   // Annotation state
   annSession: null,
   annFrame: null,
-  annPoints: [],
+  annPoints: [],       // legacy (kept for computed polygon output)
+  annLeftLine: [],     // 2 points defining left edge line
+  annRightLine: [],    // 2 points defining right edge line
   annImage: null,
   annCanvas: null,
   annCtx: null,
@@ -445,6 +447,8 @@ const App = {
   async selectFrame(filename) {
     this.annFrame = filename;
     this.annPoints = [];
+    this.annLeftLine = [];
+    this.annRightLine = [];
 
     // Highlight selection
     document.querySelectorAll('.frame-thumb').forEach(el => el.classList.remove('selected'));
@@ -464,32 +468,111 @@ const App = {
     };
     img.src = `/api/sessions/${this.annSession}/frames/${filename}`;
 
-    // Load existing annotation
+    // Load existing annotation — reconstruct left/right lines from saved polygon
     try {
       const res = await fetch(
         `/api/sessions/${this.annSession}/frames/${filename}/annotation`
       );
       const data = await res.json();
       if (data.exists && data.points && data.points.length === 4) {
-        this.annPoints = data.points;
+        // Saved order: leftTop, rightTop, rightBottom, leftBottom
+        const p = data.points;
+        this.annLeftLine = [p[0], p[3]];   // left top, left bottom
+        this.annRightLine = [p[1], p[2]];  // right top, right bottom
       }
     } catch (e) { /* no annotation */ }
+    this._updateStepIndicator();
   },
 
   // ----------------------------------------------------------------
   // Annotation Canvas
   // ----------------------------------------------------------------
+
+  // Geometry: extend a line through two normalized points to the image boundary [0,1]x[0,1].
+  // Returns the 2 intersection points with the boundary, sorted top-to-bottom (by y).
+  _lineImageIntersections(p1, p2) {
+    const dx = p2[0] - p1[0];
+    const dy = p2[1] - p1[1];
+    const hits = [];
+
+    // Intersect with x=0 (left edge)
+    if (dx !== 0) {
+      const t = (0 - p1[0]) / dx;
+      const y = p1[1] + t * dy;
+      if (y >= 0 && y <= 1) hits.push([0, y]);
+    }
+    // Intersect with x=1 (right edge)
+    if (dx !== 0) {
+      const t = (1 - p1[0]) / dx;
+      const y = p1[1] + t * dy;
+      if (y >= 0 && y <= 1) hits.push([1, y]);
+    }
+    // Intersect with y=0 (top edge)
+    if (dy !== 0) {
+      const t = (0 - p1[1]) / dy;
+      const x = p1[0] + t * dx;
+      if (x >= 0 && x <= 1) hits.push([x, 0]);
+    }
+    // Intersect with y=1 (bottom edge)
+    if (dy !== 0) {
+      const t = (1 - p1[1]) / dy;
+      const x = p1[0] + t * dx;
+      if (x >= 0 && x <= 1) hits.push([x, 1]);
+    }
+
+    // Deduplicate (corner hits can appear twice)
+    const unique = [];
+    for (const h of hits) {
+      if (!unique.some(u => Math.abs(u[0] - h[0]) < 1e-9 && Math.abs(u[1] - h[1]) < 1e-9)) {
+        unique.push(h);
+      }
+    }
+    // Sort by y, then by x
+    unique.sort((a, b) => a[1] - b[1] || a[0] - b[0]);
+    return unique.slice(0, 2);
+  },
+
+  // Compute 4-point polygon from left and right edge lines.
+  // Returns array of 4 normalized [x,y] points ordered as a proper quadrilateral, or null.
+  _computePolygonFromLines() {
+    if (this.annLeftLine.length < 2 || this.annRightLine.length < 2) return null;
+
+    const leftHits = this._lineImageIntersections(this.annLeftLine[0], this.annLeftLine[1]);
+    const rightHits = this._lineImageIntersections(this.annRightLine[0], this.annRightLine[1]);
+
+    if (leftHits.length < 2 || rightHits.length < 2) return null;
+
+    // Order: leftTop, rightTop, rightBottom, leftBottom (clockwise)
+    const pts = [leftHits[0], rightHits[0], rightHits[1], leftHits[1]];
+    return pts;
+  },
+
+  // Get annotation step label
+  _annStepLabel() {
+    const total = this.annLeftLine.length + this.annRightLine.length;
+    if (total === 0) return 'Tap 1st point of LEFT edge';
+    if (total === 1) return 'Tap 2nd point of LEFT edge';
+    if (total === 2) return 'Tap 1st point of RIGHT edge';
+    if (total === 3) return 'Tap 2nd point of RIGHT edge';
+    return 'Done — Save or adjust';
+  },
+
+  _updateStepIndicator() {
+    const el = document.getElementById('ann-step');
+    if (el) el.textContent = this._annStepLabel();
+  },
+
   setupAnnotationCanvas() {
     const canvas = document.getElementById('annotation-canvas');
     if (!canvas) return;
     this.annCanvas = canvas;
     this.annCtx = canvas.getContext('2d');
 
-    // Touch/click handler
     const handler = (e) => {
       e.preventDefault();
       if (!this.annImage) return;
-      if (this.annPoints.length >= 4) return;
+      const total = this.annLeftLine.length + this.annRightLine.length;
+      if (total >= 4) return;
 
       const rect = canvas.getBoundingClientRect();
       let clientX, clientY;
@@ -501,15 +584,16 @@ const App = {
         clientY = e.clientY;
       }
 
-      // Normalized coordinates (0-1)
-      const x = (clientX - rect.left) / rect.width;
-      const y = (clientY - rect.top) / rect.height;
+      const x = Math.max(0, Math.min(1, (clientX - rect.left) / rect.width));
+      const y = Math.max(0, Math.min(1, (clientY - rect.top) / rect.height));
 
-      this.annPoints.push([
-        Math.max(0, Math.min(1, x)),
-        Math.max(0, Math.min(1, y)),
-      ]);
+      if (this.annLeftLine.length < 2) {
+        this.annLeftLine.push([x, y]);
+      } else {
+        this.annRightLine.push([x, y]);
+      }
 
+      this._updateStepIndicator();
       this.drawAnnotation();
     };
 
@@ -541,49 +625,75 @@ const App = {
 
     const w = canvas.width;
     const h = canvas.height;
-
-    // Draw image
     ctx.drawImage(this.annImage, 0, 0, w, h);
 
-    if (this.annPoints.length === 0) return;
+    const leftLen = this.annLeftLine.length;
+    const rightLen = this.annRightLine.length;
+    if (leftLen === 0 && rightLen === 0) return;
 
-    // Draw polygon
-    ctx.strokeStyle = '#e94560';
-    ctx.lineWidth = 2;
-    ctx.fillStyle = 'rgba(233, 69, 96, 0.2)';
+    // Helper: draw extended line across image
+    const drawExtLine = (p1, p2, color) => {
+      const hits = this._lineImageIntersections(p1, p2);
+      if (hits.length >= 2) {
+        ctx.strokeStyle = color;
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.moveTo(hits[0][0] * w, hits[0][1] * h);
+        ctx.lineTo(hits[1][0] * w, hits[1][1] * h);
+        ctx.stroke();
+      }
+    };
 
-    ctx.beginPath();
-    for (let i = 0; i < this.annPoints.length; i++) {
-      const px = this.annPoints[i][0] * w;
-      const py = this.annPoints[i][1] * h;
-      if (i === 0) ctx.moveTo(px, py);
-      else ctx.lineTo(px, py);
-    }
-    if (this.annPoints.length === 4) {
-      ctx.closePath();
-      ctx.fill();
-    }
-    ctx.stroke();
-
-    // Draw points
-    for (let i = 0; i < this.annPoints.length; i++) {
-      const px = this.annPoints[i][0] * w;
-      const py = this.annPoints[i][1] * h;
-      ctx.fillStyle = '#e94560';
+    // Helper: draw a labeled point
+    const drawPt = (pt, color, label) => {
+      const px = pt[0] * w, py = pt[1] * h;
+      ctx.fillStyle = color;
       ctx.beginPath();
       ctx.arc(px, py, 6, 0, Math.PI * 2);
       ctx.fill();
       ctx.fillStyle = '#fff';
       ctx.font = '10px sans-serif';
       ctx.textAlign = 'center';
-      ctx.fillText(String(i + 1), px, py + 3);
+      ctx.fillText(label, px, py + 3);
+    };
+
+    // Compute polygon and fill if both lines are complete
+    const poly = this._computePolygonFromLines();
+    if (poly) {
+      ctx.fillStyle = 'rgba(233, 69, 96, 0.18)';
+      ctx.beginPath();
+      ctx.moveTo(poly[0][0] * w, poly[0][1] * h);
+      for (let i = 1; i < poly.length; i++) {
+        ctx.lineTo(poly[i][0] * w, poly[i][1] * h);
+      }
+      ctx.closePath();
+      ctx.fill();
+
+      // Midline (green)
+      const midP1 = [(this.annLeftLine[0][0] + this.annRightLine[0][0]) / 2,
+                      (this.annLeftLine[0][1] + this.annRightLine[0][1]) / 2];
+      const midP2 = [(this.annLeftLine[1][0] + this.annRightLine[1][0]) / 2,
+                      (this.annLeftLine[1][1] + this.annRightLine[1][1]) / 2];
+      drawExtLine(midP1, midP2, '#00ff00');
     }
+
+    // Draw left line (cyan)
+    if (leftLen === 2) drawExtLine(this.annLeftLine[0], this.annLeftLine[1], '#00e5ff');
+
+    // Draw right line (orange)
+    if (rightLen === 2) drawExtLine(this.annRightLine[0], this.annRightLine[1], '#ffa500');
+
+    // Draw clicked points
+    for (let i = 0; i < leftLen; i++) drawPt(this.annLeftLine[i], '#00e5ff', 'L' + (i + 1));
+    for (let i = 0; i < rightLen; i++) drawPt(this.annRightLine[i], '#ffa500', 'R' + (i + 1));
   },
 
   async saveAnnotation() {
     if (!this.annSession || !this.annFrame) return;
-    if (this.annPoints.length !== 4) {
-      alert('Place exactly 4 points before saving.');
+
+    const poly = this._computePolygonFromLines();
+    if (!poly) {
+      alert('Place 2 points for each edge line (4 points total).');
       return;
     }
 
@@ -593,11 +703,10 @@ const App = {
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ points: this.annPoints }),
+          body: JSON.stringify({ points: poly }),
         }
       );
       if (res.ok) {
-        // Update thumbnail badge
         const thumb = document.getElementById(`thumb-${this.annFrame}`);
         if (thumb && !thumb.classList.contains('annotated')) {
           thumb.classList.add('annotated');
@@ -614,8 +723,21 @@ const App = {
     }
   },
 
+  undoLastPoint() {
+    if (this.annRightLine.length > 0) {
+      this.annRightLine.pop();
+    } else if (this.annLeftLine.length > 0) {
+      this.annLeftLine.pop();
+    }
+    this._updateStepIndicator();
+    this.drawAnnotation();
+  },
+
   clearAnnotation() {
+    this.annLeftLine = [];
+    this.annRightLine = [];
     this.annPoints = [];
+    this._updateStepIndicator();
     this.drawAnnotation();
   },
 
@@ -626,10 +748,12 @@ const App = {
         `/api/sessions/${this.annSession}/frames/${this.annFrame}/annotation`,
         { method: 'DELETE' }
       );
+      this.annLeftLine = [];
+      this.annRightLine = [];
       this.annPoints = [];
+      this._updateStepIndicator();
       this.drawAnnotation();
 
-      // Update thumbnail
       const thumb = document.getElementById(`thumb-${this.annFrame}`);
       if (thumb) {
         thumb.classList.remove('annotated');
