@@ -252,7 +252,8 @@ def _run_headless(state, mode_manager, camera, inference):
 
     state.append_log("Running in headless mode. Press Ctrl+C to stop.")
 
-    shutdown_event.wait()
+    while not shutdown_event.wait(timeout=1.0):
+        pass
 
 
 def _shutdown(state, mode_manager, camera, inference, training_manager,
@@ -277,6 +278,10 @@ def _shutdown(state, mode_manager, camera, inference, training_manager,
     camera.join(timeout=3.0)
 
     state.append_log("Shutdown complete.")
+
+    # Force exit to avoid C++ destructor crashes in daemon threads
+    # (ZED SDK, PyTorch etc.)
+    os._exit(0)
 
 
 if __name__ == "__main__":
