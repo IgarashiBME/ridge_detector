@@ -217,15 +217,23 @@ class InferenceThread(threading.Thread):
                 time.sleep(0.05)
                 continue
 
-            # Get frame from queue
-            if self.inference_queue is None:
-                time.sleep(0.05)
-                continue
-
-            try:
-                frame = self.inference_queue.get(timeout=0.1)
-            except queue.Empty:
-                continue
+            # Get frame: test image or queue
+            test_path = self._state.get_test_image_path()
+            if test_path is not None:
+                frame = cv2.imread(test_path)
+                if frame is None:
+                    self._state.append_log(
+                        f"ERROR: Cannot read test image: {test_path}")
+                    time.sleep(1.0)
+                    continue
+            else:
+                if self.inference_queue is None:
+                    time.sleep(0.05)
+                    continue
+                try:
+                    frame = self.inference_queue.get(timeout=0.1)
+                except queue.Empty:
+                    continue
 
             # Rate limiting
             now = time.perf_counter()

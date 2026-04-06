@@ -931,6 +931,34 @@ const App = {
   },
 
   // ----------------------------------------------------------------
+  // Test Image Detection
+  // ----------------------------------------------------------------
+  async startTestDetect() {
+    if (!this.annSession || !this.annFrame) {
+      alert('Select a frame first.');
+      return;
+    }
+    try {
+      const res = await fetch('/api/test-detect/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          session: this.annSession,
+          frame: this.annFrame,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || data.message || 'Failed to start test detect');
+        return;
+      }
+      this.navigate('dashboard');
+    } catch (e) {
+      alert('Connection error');
+    }
+  },
+
+  // ----------------------------------------------------------------
   // Training
   // ----------------------------------------------------------------
   // Cached session data for stats recalculation

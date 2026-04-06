@@ -52,6 +52,11 @@ class EmaAlphaRequest(BaseModel):
     alpha: float
 
 
+class TestDetectRequest(BaseModel):
+    session: str
+    frame: str
+
+
 class EvaluationStartRequest(BaseModel):
     model_path: str
     sessions: List[str]
@@ -411,6 +416,34 @@ def set_ema_alpha(request: Request, body: EmaAlphaRequest):
     state = _get_state(request)
     state.append_log(f"EMA alpha set to {body.alpha:.2f}")
     return {"ok": True, "alpha": body.alpha}
+
+
+# ----------------------------------------------------------------
+# Test Image Detection
+# ----------------------------------------------------------------
+@router.post("/test-detect/start")
+def start_test_detect(request: Request, body: TestDetectRequest):
+    """Start detection on a static test image."""
+    records_dir = _get_records_dir(request)
+    session = _sanitize_name(body.session)
+    frame = _sanitize_name(body.frame)
+    frame_path = os.path.join(records_dir, session, "frames", frame)
+
+    if not os.path.isfile(frame_path):
+        raise HTTPException(404, "Frame not found")
+
+    state = _get_state(request)
+    mm = _get_mode_manager(request)
+
+    state.set_test_image_path(frame_path)
+
+    ok, msg = mm.request_mode(Mode.DETECTING, source="API")
+    if not ok:
+        state.set_test_image_path(None)
+        raise HTTPException(409, msg)
+
+    state.append_log(f"Test detect started: {session}/{frame}")
+    return {"ok": True, "message": f"Test detection on {frame}"}
 
 
 # ----------------------------------------------------------------

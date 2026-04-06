@@ -76,6 +76,9 @@ class SharedState:
         self._recording_start: Optional[float] = None
         self._recording_session_dir: str = ""
 
+        # Test image detection
+        self._test_image_path: Optional[str] = None
+
         # Training
         self._training = TrainingStatus()
 
@@ -186,6 +189,17 @@ class SharedState:
             self._recording_session_dir = session_dir
 
     # ----------------------------------------------------------------
+    # Test Image Detection
+    # ----------------------------------------------------------------
+    def get_test_image_path(self) -> Optional[str]:
+        with self._lock:
+            return self._test_image_path
+
+    def set_test_image_path(self, path: Optional[str]):
+        with self._lock:
+            self._test_image_path = path
+
+    # ----------------------------------------------------------------
     # Training
     # ----------------------------------------------------------------
     def get_training(self) -> TrainingStatus:
@@ -286,6 +300,7 @@ class SharedState:
                     "elapsed_s": rec_elapsed,
                     "session_dir": self._recording_session_dir,
                 },
+                "test_image_path": self._test_image_path,
                 "training": {
                     "running": self._training.running,
                     "epoch": self._training.epoch,

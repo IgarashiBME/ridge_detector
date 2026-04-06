@@ -186,7 +186,11 @@ def main():
         start_recording=camera.start_recording,
         stop_recording=camera.stop_recording,
         start_detecting=lambda: (camera.start_detecting(), inference.start_detecting()),
-        stop_detecting=lambda: (inference.stop_detecting(), camera.stop_detecting()),
+        stop_detecting=lambda: (
+            inference.stop_detecting(),
+            camera.stop_detecting(),
+            state.set_test_image_path(None),
+        ),
         start_training=None,
         stop_training=lambda: training_manager.stop(),
         start_evaluating=None,
