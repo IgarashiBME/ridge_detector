@@ -302,6 +302,7 @@ nav a:hover { color: var(--text); }
   overflow-y: auto;
   color: var(--text2);
   line-height: 1.4;
+  white-space: pre-wrap;
 }
 
 /* Back button */
