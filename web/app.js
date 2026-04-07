@@ -1198,6 +1198,7 @@ const App = {
         body: JSON.stringify({
           model_path: modelPath,
           sessions: sessions,
+          conf: parseFloat(document.getElementById('eval-conf').value) || 0.25,
         }),
       });
       const data = await res.json();
