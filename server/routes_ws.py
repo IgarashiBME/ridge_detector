@@ -57,6 +57,12 @@ async def websocket_endpoint(ws: WebSocket):
 
     frame_interval = 1.0 / 5.0  # ~5 FPS for WebSocket frames
 
+    # Send existing logs on connect
+    existing_logs = state.get_logs(last_n=50)
+    if existing_logs:
+        await ws.send_json({"type": "log", "data": existing_logs})
+        last_log_count = len(existing_logs)
+
     try:
         while True:
             # Check for incoming messages (non-blocking)
