@@ -218,6 +218,14 @@ const App = {
     if (btnDet) btnDet.disabled = !isIdle;
     if (btnStop) btnStop.disabled = isIdle;
 
+    // Conf threshold
+    if (data.conf !== undefined) {
+      const confInput = document.getElementById('conf-input');
+      if (confInput && document.activeElement !== confInput) {
+        confInput.value = data.conf;
+      }
+    }
+
     // EMA alpha
     if (data.ema_alpha !== undefined) {
       this.updateEmaAlpha(data.ema_alpha);
@@ -359,6 +367,21 @@ const App = {
     } catch (e) {
       alert('Connection error');
     }
+  },
+
+  // ----------------------------------------------------------------
+  // Conf Threshold
+  // ----------------------------------------------------------------
+  async setConf(value) {
+    const conf = parseFloat(value);
+    if (isNaN(conf)) return;
+    try {
+      await fetch('/api/conf', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ conf }),
+      });
+    } catch (e) { /* offline */ }
   },
 
   // ----------------------------------------------------------------

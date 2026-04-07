@@ -52,6 +52,10 @@ class EmaAlphaRequest(BaseModel):
     alpha: float
 
 
+class ConfRequest(BaseModel):
+    conf: float
+
+
 class TestDetectRequest(BaseModel):
     session: str
     frame: str
@@ -109,6 +113,7 @@ def get_status(request: Request):
             det[k] = _nan_to_none(det[k])
     inference = request.app.state.inference_thread
     snap["ema_alpha"] = inference.ema_alpha
+    snap["conf"] = inference.conf
     return snap
 
 
@@ -416,6 +421,23 @@ def set_ema_alpha(request: Request, body: EmaAlphaRequest):
     state = _get_state(request)
     state.append_log(f"EMA alpha set to {body.alpha:.2f}")
     return {"ok": True, "alpha": body.alpha}
+
+
+@router.get("/conf")
+def get_conf(request: Request):
+    inference = request.app.state.inference_thread
+    return {"conf": inference.conf}
+
+
+@router.post("/conf")
+def set_conf(request: Request, body: ConfRequest):
+    if not 0.01 <= body.conf <= 1.0:
+        raise HTTPException(400, "conf must be between 0.01 and 1.0")
+    inference = request.app.state.inference_thread
+    inference.conf = body.conf
+    state = _get_state(request)
+    state.append_log(f"Conf threshold set to {body.conf:.2f}")
+    return {"ok": True, "conf": body.conf}
 
 
 # ----------------------------------------------------------------
