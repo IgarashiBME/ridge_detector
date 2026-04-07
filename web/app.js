@@ -446,6 +446,9 @@ const App = {
     this.annSession = sessionName;
     this.annFrame = null;
     this.annPoints = [];
+    this.annLeftLine = [];
+    this.annRightLine = [];
+    this.annLoadedPoly = null;
 
     document.getElementById('ann-session-name').textContent = sessionName;
     document.getElementById('ann-editor').style.display = 'none';
@@ -519,6 +522,7 @@ const App = {
         }
       }
     } catch (e) { /* no annotation */ }
+    this.drawAnnotation();
     this._updateStepIndicator();
   },
 
