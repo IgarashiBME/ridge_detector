@@ -1025,7 +1025,7 @@ const App = {
 
     container.innerHTML = annotated.map(s => `
       <label class="train-session-row">
-        <input type="checkbox" class="train-session-cb" value="${s.name}" checked
+        <input type="checkbox" class="train-session-cb" value="${s.name}"
                onchange="App.recalcSelectedStats()">
         <span class="train-session-name">${s.name}</span>
         <span class="train-session-count">${s.annotated_count} annotated</span>
@@ -1184,7 +1184,7 @@ const App = {
     }
     container.innerHTML = annotated.map(s => `
       <label class="train-session-row">
-        <input type="checkbox" class="eval-session-cb" value="${s.name}" checked>
+        <input type="checkbox" class="eval-session-cb" value="${s.name}">
         <span class="train-session-name">${s.name}</span>
         <span class="train-session-count">${s.annotated_count} annotated</span>
       </label>
