@@ -103,17 +103,10 @@ def parse_args():
     if args.no_half:
         args.half = False
 
-    # Auto-detect model path from ~/ridge_data/models/
+    # Default model path
     if args.model is None:
-        models_dir = os.path.expanduser(
-            os.path.join(args.save_dir, 'models'))
-        if os.path.isdir(models_dir):
-            pts = sorted(f for f in os.listdir(models_dir)
-                         if f.endswith('.pt'))
-            if pts:
-                args.model = os.path.join(models_dir, pts[0])
-        if args.model is None:
-            args.model = 'yolo11s-seg.pt'
+        args.model = os.path.expanduser(
+            os.path.join(args.save_dir, 'models', 'yolo11s_seg_r.pt'))
 
     return args
 
