@@ -68,6 +68,10 @@ class EvaluationStartRequest(BaseModel):
     conf: float = 0.25
 
 
+class TimeSyncRequest(BaseModel):
+    client_epoch_ms: float
+
+
 # ----------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------
@@ -115,6 +119,25 @@ def get_status(request: Request):
     snap["ema_alpha"] = inference.ema_alpha
     snap["conf"] = inference.conf
     return snap
+
+
+@router.post("/time/sync")
+def sync_time(request: Request, body: TimeSyncRequest):
+    """Receive client wall-clock time and store offset.
+
+    Jetson has no NTP/RTC, so the client (PWA on a phone/PC) is the only
+    reliable source of absolute time. Last write wins across clients.
+    """
+    state = _get_state(request)
+    client_epoch = body.client_epoch_ms / 1000.0
+    offset = state.set_time_offset(client_epoch)
+    state.append_log(f"Time synced from client (offset {offset:+.1f}s)")
+    return {"ok": True, "offset": offset}
+
+
+@router.get("/time/sync")
+def get_time_sync(request: Request):
+    return _get_state(request).get_time_sync_info()
 
 
 @router.post("/mode")

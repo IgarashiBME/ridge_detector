@@ -12,6 +12,7 @@ Modes (read from SharedState):
 """
 
 import csv
+import json
 import os
 import queue
 import random
@@ -45,8 +46,19 @@ def ensure_dir(path_str: str) -> None:
     Path(path_str).mkdir(parents=True, exist_ok=True)
 
 
-def now_stamp() -> str:
-    return datetime.now().strftime("%Y%m%d_%H%M%S")
+def now_stamp(state: Optional["SharedState"] = None) -> str:
+    """Generate a timestamp string for filenames.
+
+    Jetson has no NTP/RTC, so when a SharedState is supplied we use the
+    client-provided time offset (set via /api/time/sync). Falls back to the
+    Jetson local clock when no offset has been received yet.
+    """
+    epoch: Optional[float] = None
+    if state is not None:
+        epoch = state.corrected_now()
+    if epoch is None:
+        epoch = time.time()
+    return datetime.fromtimestamp(epoch).strftime("%Y%m%d_%H%M%S")
 
 
 def sl_time_to_ns(t) -> int:
@@ -132,10 +144,25 @@ class CameraThread(threading.Thread):
             self._state.append_log("Already recording.")
             return
 
+        # Require client time sync before recording. Jetson has no NTP/RTC,
+        # so without an offset the directory name would use a meaningless
+        # local clock value.
+        if self._state.get_time_offset() is None:
+            self._state.append_log(
+                "ERROR: cannot start recording — client time not synced yet."
+            )
+            return
+
         records_dir = os.path.join(self.save_dir, "records")
         ensure_dir(records_dir)
-        stamp = now_stamp()
+        stamp = now_stamp(self._state)
         session_dir = os.path.join(records_dir, stamp)
+        # Avoid collisions if two recordings happen within the same second.
+        if os.path.exists(session_dir):
+            suffix = 1
+            while os.path.exists(f"{session_dir}_{suffix}"):
+                suffix += 1
+            session_dir = f"{session_dir}_{suffix}"
         ensure_dir(session_dir)
         frames_dir = os.path.join(session_dir, "frames")
         ensure_dir(frames_dir)
@@ -159,6 +186,25 @@ class CameraThread(threading.Thread):
         self._frame_count = 0
         self._state.set_recording_info(self._recording_start_monotonic, session_dir)
         self._state.append_log(f"Recording started: {svo_path}")
+
+        # Persist time-sync provenance for this session.
+        try:
+            sync_info = self._state.get_time_sync_info()
+            client_epoch = self._state.corrected_now()
+            meta = {
+                "client_epoch_at_start": client_epoch,
+                "client_iso_at_start": (
+                    datetime.fromtimestamp(client_epoch).isoformat()
+                    if client_epoch is not None else None
+                ),
+                "server_epoch_at_start": time.time(),
+                "time_offset_seconds": sync_info.get("offset"),
+                "time_offset_updated_at": sync_info.get("updated_at"),
+            }
+            with open(os.path.join(session_dir, "meta.json"), "w") as f:
+                json.dump(meta, f, indent=2)
+        except Exception as e:
+            self._state.append_log(f"WARN: failed to write meta.json: {e}")
 
         # IMU CSV
         if self._imu_available:

@@ -6,6 +6,7 @@ const App = {
   wsConnected: false,
   currentMode: 'IDLE',
   currentPage: 'dashboard',
+  timeSynced: false,
   // Annotation state
   annSession: null,
   annFrame: null,
@@ -22,6 +23,7 @@ const App = {
   // ----------------------------------------------------------------
   init() {
     this.setupRouter();
+    this.syncTime(); // Push browser time to Jetson before anything else.
     this.connectWebSocket();
     this.setupAnnotationCanvas();
 
@@ -31,6 +33,33 @@ const App = {
 
     // Periodic status fetch as fallback
     setInterval(() => this.fetchStatus(), 3000);
+    // Re-push time periodically so the most recently active client wins.
+    setInterval(() => this.syncTime(), 60000);
+  },
+
+  // ----------------------------------------------------------------
+  // Time sync (Jetson has no NTP/RTC — browser is the time source)
+  // ----------------------------------------------------------------
+  async syncTime() {
+    try {
+      const res = await fetch('/api/time/sync', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ client_epoch_ms: Date.now() }),
+      });
+      if (res.ok) {
+        this.timeSynced = true;
+        this.refreshRecordButtonState();
+      }
+    } catch (e) { /* offline — retry on next interval */ }
+  },
+
+  refreshRecordButtonState() {
+    const btnRec = document.getElementById('btn-record');
+    if (!btnRec) return;
+    const isIdle = this.currentMode === 'IDLE';
+    btnRec.disabled = !isIdle || !this.timeSynced;
+    btnRec.title = this.timeSynced ? '' : 'Waiting for time sync…';
   },
 
   // ----------------------------------------------------------------
@@ -123,6 +152,8 @@ const App = {
           type: 'subscribe',
           channels: ['status', 'detection', 'training', 'evaluation', 'log', 'frame']
         }));
+        // Re-sync time on every (re)connection.
+        this.syncTime();
       };
 
       this.ws.onmessage = (event) => {
@@ -214,9 +245,17 @@ const App = {
     const btnRec = document.getElementById('btn-record');
     const btnDet = document.getElementById('btn-detect');
     const btnStop = document.getElementById('btn-stop');
-    if (btnRec) btnRec.disabled = !isIdle;
+    if (btnRec) {
+      btnRec.disabled = !isIdle || !this.timeSynced;
+      btnRec.title = this.timeSynced ? '' : 'Waiting for time sync…';
+    }
     if (btnDet) btnDet.disabled = !isIdle;
     if (btnStop) btnStop.disabled = isIdle;
+
+    // Reflect server-known sync state too (e.g. after reload).
+    if (data.time_sync && data.time_sync.synced) {
+      this.timeSynced = true;
+    }
 
     // Conf threshold
     if (data.conf !== undefined) {
@@ -310,6 +349,11 @@ const App = {
   // ----------------------------------------------------------------
   async setMode(mode) {
     try {
+      // Re-sync browser time right before RECORDING so the directory name
+      // reflects the time of whichever client actually pressed Record.
+      if (mode === 'RECORDING') {
+        await this.syncTime();
+      }
       const res = await fetch('/api/mode', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },

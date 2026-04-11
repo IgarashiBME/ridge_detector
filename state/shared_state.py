@@ -95,6 +95,11 @@ class SharedState:
         self._camera_opened: bool = False
         self._imu_available: bool = False
 
+        # Client time sync (offset = client_epoch - time.time())
+        # None until at least one client has called /api/time/sync.
+        self._time_offset: Optional[float] = None
+        self._time_offset_updated_at: Optional[float] = None
+
         # Events for change notification
         self.mode_changed = threading.Event()
         self.detection_updated = threading.Event()
@@ -260,6 +265,40 @@ class SharedState:
             self._imu_available = available
 
     # ----------------------------------------------------------------
+    # Client time sync
+    # ----------------------------------------------------------------
+    def set_time_offset(self, client_epoch: float) -> float:
+        """Store offset such that corrected_now() ≈ client wall-clock time.
+
+        Last-write-wins across multiple clients.
+        Returns the computed offset.
+        """
+        offset = client_epoch - time.time()
+        with self._lock:
+            self._time_offset = offset
+            self._time_offset_updated_at = time.time()
+        return offset
+
+    def get_time_offset(self) -> Optional[float]:
+        with self._lock:
+            return self._time_offset
+
+    def corrected_now(self) -> Optional[float]:
+        """Returns current epoch corrected by client offset, or None if unsynced."""
+        with self._lock:
+            if self._time_offset is None:
+                return None
+            return time.time() + self._time_offset
+
+    def get_time_sync_info(self) -> dict:
+        with self._lock:
+            return {
+                "synced": self._time_offset is not None,
+                "offset": self._time_offset,
+                "updated_at": self._time_offset_updated_at,
+            }
+
+    # ----------------------------------------------------------------
     # Log
     # ----------------------------------------------------------------
     def append_log(self, message: str):
@@ -301,6 +340,10 @@ class SharedState:
                     "session_dir": self._recording_session_dir,
                 },
                 "test_image_path": self._test_image_path,
+                "time_sync": {
+                    "synced": self._time_offset is not None,
+                    "offset": self._time_offset,
+                },
                 "training": {
                     "running": self._training.running,
                     "epoch": self._training.epoch,
