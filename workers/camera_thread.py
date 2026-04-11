@@ -356,8 +356,11 @@ class CameraThread(threading.Thread):
         if random.random() >= self._capture_probability:
             return
         bgr = cv2.cvtColor(bgra, cv2.COLOR_BGRA2BGR)
+        session_stamp = os.path.basename(self._session_dir)
         frame_path = os.path.join(
-            self._session_dir, "frames", f"frame_{self._frame_count:06d}.jpg"
+            self._session_dir,
+            "frames",
+            f"{session_stamp}_{self._frame_count:06d}.jpg",
         )
         cv2.imwrite(frame_path, bgr, [cv2.IMWRITE_JPEG_QUALITY, 95])
 

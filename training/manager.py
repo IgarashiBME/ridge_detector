@@ -266,18 +266,23 @@ class TrainingManager:
         os.makedirs(img_dir, exist_ok=True)
         os.makedirs(lbl_dir, exist_ok=True)
 
-        # Create symlinks
+        # Create symlinks. Frame filenames are globally unique by convention
+        # (session stamp embedded at capture time), so we can link them as-is.
+        # Legacy frames using the old "frame_NNNNNN" name still work because
+        # only one such session can ever appear under a single training run
+        # without colliding — if a collision does occur, fall back to a
+        # session-prefixed name.
         for img_path, lbl_path in zip(dataset_info["images"], dataset_info["labels"]):
             img_name = os.path.basename(img_path)
             lbl_name = os.path.basename(lbl_path)
 
-            # Handle duplicate names across sessions by prefixing
-            session_name = Path(img_path).parent.parent.name
-            unique_img = f"{session_name}_{img_name}"
-            unique_lbl = f"{session_name}_{lbl_name}"
+            img_link = os.path.join(img_dir, img_name)
+            lbl_link = os.path.join(lbl_dir, lbl_name)
 
-            img_link = os.path.join(img_dir, unique_img)
-            lbl_link = os.path.join(lbl_dir, unique_lbl)
+            if os.path.exists(img_link) or os.path.exists(lbl_link):
+                session_name = Path(img_path).parent.parent.name
+                img_link = os.path.join(img_dir, f"{session_name}_{img_name}")
+                lbl_link = os.path.join(lbl_dir, f"{session_name}_{lbl_name}")
 
             if not os.path.exists(img_link):
                 os.symlink(img_path, img_link)
