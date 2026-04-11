@@ -15,9 +15,22 @@ import subprocess
 import sys
 import threading
 import time
+from datetime import datetime
 from pathlib import Path
 
 from state.shared_state import SharedState
+
+
+def _now_stamp(state: SharedState) -> str:
+    """Generate a timestamp string using client-synced time when available.
+
+    Jetson has no NTP/RTC, so prefer the client-provided offset (set via
+    /api/time/sync). Falls back to the Jetson local clock when unsynced.
+    """
+    epoch = state.corrected_now()
+    if epoch is None:
+        epoch = time.time()
+    return datetime.fromtimestamp(epoch).strftime("%Y%m%d_%H%M%S")
 
 
 class TrainingManager:
@@ -61,7 +74,7 @@ class TrainingManager:
 
         # Create training run directory
         run_dir = os.path.join(self.save_dir, "training_runs",
-                               time.strftime("%Y%m%d_%H%M%S"))
+                               _now_stamp(self._state))
         os.makedirs(run_dir, exist_ok=True)
 
         # Save dataset_info.json (which sessions / how many frames)
@@ -322,7 +335,7 @@ class TrainingManager:
                     run_timestamp = parts[i + 1]
                     break
             if not run_timestamp:
-                run_timestamp = time.strftime("%Y%m%d_%H%M%S")
+                run_timestamp = _now_stamp(self._state)
 
             dest_name = f"{base_stem}_{run_timestamp}.pt"
             dest_path = os.path.join(models_dir, dest_name)
