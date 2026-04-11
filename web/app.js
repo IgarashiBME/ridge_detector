@@ -10,6 +10,7 @@ const App = {
   // Annotation state
   annSession: null,
   annFrame: null,
+  annFrameList: [],    // ordered list of frame filenames in the current session
   annPoints: [],       // legacy (kept for computed polygon output)
   annLeftLine: [],     // 2 points defining left edge line
   annRightLine: [],    // 2 points defining right edge line
@@ -26,6 +27,7 @@ const App = {
     this.syncTime(); // Push browser time to Jetson before anything else.
     this.connectWebSocket();
     this.setupAnnotationCanvas();
+    this.setupAnnotationKeys();
 
     // Initial route
     this.handleRoute();
@@ -512,6 +514,7 @@ const App = {
   async loadAnnotationView(sessionName) {
     this.annSession = sessionName;
     this.annFrame = null;
+    this.annFrameList = [];
     this.annPoints = [];
     this.annLeftLine = [];
     this.annRightLine = [];
@@ -531,6 +534,8 @@ const App = {
         grid.innerHTML = '<div class="empty-state">No frames in this session</div>';
         return;
       }
+
+      this.annFrameList = frames.map(f => f.filename);
 
       grid.innerHTML = frames.map(f => `
         <div class="frame-thumb ${f.annotated ? 'annotated' : ''}"
@@ -559,7 +564,11 @@ const App = {
     if (thumb) thumb.classList.add('selected');
 
     document.getElementById('ann-frame-name').textContent = filename;
-    document.getElementById('ann-editor').style.display = 'block';
+    const editor = document.getElementById('ann-editor');
+    editor.style.display = 'block';
+    // Bring the editor into view (esp. on first frame selection from the grid below)
+    editor.scrollIntoView({ block: 'start', behavior: 'smooth' });
+    this._updateFrameNav();
 
     // Load image into canvas
     const img = new Image();
@@ -591,6 +600,42 @@ const App = {
     } catch (e) { /* no annotation */ }
     this.drawAnnotation();
     this._updateStepIndicator();
+  },
+
+  // Frame navigation (prev/next within the current session)
+  _currentFrameIndex() {
+    if (!this.annFrame || this.annFrameList.length === 0) return -1;
+    return this.annFrameList.indexOf(this.annFrame);
+  },
+
+  _updateFrameNav() {
+    const posEl = document.getElementById('ann-position');
+    const prevBtn = document.getElementById('ann-prev-btn');
+    const nextBtn = document.getElementById('ann-next-btn');
+    if (!posEl || !prevBtn || !nextBtn) return;
+    const idx = this._currentFrameIndex();
+    const total = this.annFrameList.length;
+    if (idx < 0 || total === 0) {
+      posEl.textContent = '- / -';
+      prevBtn.disabled = true;
+      nextBtn.disabled = true;
+      return;
+    }
+    posEl.textContent = `${idx + 1} / ${total}`;
+    prevBtn.disabled = idx <= 0;
+    nextBtn.disabled = idx >= total - 1;
+  },
+
+  prevFrame() {
+    const idx = this._currentFrameIndex();
+    if (idx > 0) this.selectFrame(this.annFrameList[idx - 1]);
+  },
+
+  nextFrame() {
+    const idx = this._currentFrameIndex();
+    if (idx >= 0 && idx < this.annFrameList.length - 1) {
+      this.selectFrame(this.annFrameList[idx + 1]);
+    }
   },
 
   // ----------------------------------------------------------------
@@ -742,6 +787,17 @@ const App = {
     check(this.annLeftLine, 'left');
     check(this.annRightLine, 'right');
     return best;
+  },
+
+  setupAnnotationKeys() {
+    document.addEventListener('keydown', (e) => {
+      if (this.currentPage !== 'annotation') return;
+      // Don't hijack keys when typing in form fields
+      const tag = (e.target && e.target.tagName) || '';
+      if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+      if (e.key === 'ArrowLeft') { e.preventDefault(); this.prevFrame(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); this.nextFrame(); }
+    });
   },
 
   setupAnnotationCanvas() {

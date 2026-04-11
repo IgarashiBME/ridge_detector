@@ -232,6 +232,30 @@ nav a:hover { color: var(--text); }
   background: var(--accent2);
 }
 
+/* Annotation frame nav (prev / position / next) */
+.ann-nav-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 8px;
+  margin: 8px 0;
+  max-width: 640px;
+  margin-left: auto;
+  margin-right: auto;
+}
+.ann-nav-row .btn {
+  min-width: 80px;
+}
+.ann-nav-row .btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+.ann-position {
+  font-size: 13px;
+  color: var(--text2);
+  font-variant-numeric: tabular-nums;
+}
+
 /* Annotation canvas */
 #annotation-area {
   position: relative;

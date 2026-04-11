@@ -99,13 +99,13 @@
   <!-- Annotation (session detail) -->
   <div id="page-annotation" class="page">
     <span class="back-btn" onclick="App.navigate('sessions')">&larr; Back to sessions</span>
-    <div class="card">
-      <h3>Frames: <span id="ann-session-name"></span></h3>
-      <div class="frame-grid" id="frame-grid"></div>
-    </div>
-
     <div class="card" id="ann-editor" style="display:none;">
       <h3>Annotate: <span id="ann-frame-name"></span></h3>
+      <div class="ann-nav-row">
+        <button class="btn" id="ann-prev-btn" onclick="App.prevFrame()" title="Previous frame (←)">&larr; Prev</button>
+        <span id="ann-position" class="ann-position">- / -</span>
+        <button class="btn" id="ann-next-btn" onclick="App.nextFrame()" title="Next frame (→)">Next &rarr;</button>
+      </div>
       <div id="annotation-area">
         <canvas id="annotation-canvas"></canvas>
       </div>
@@ -122,6 +122,11 @@
       <p style="font-size:11px; color:var(--text2); margin-top:4px;">
         Left edge 2 points (cyan), then right edge 2 points (orange). Lines extend to image boundary.
       </p>
+    </div>
+
+    <div class="card">
+      <h3>Frames: <span id="ann-session-name"></span></h3>
+      <div class="frame-grid" id="frame-grid"></div>
     </div>
   </div>
 
