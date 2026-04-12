@@ -98,7 +98,7 @@ Uses `subprocess.Popen` for GPU memory isolation (CUDA context freed on process 
 
 ### PWA (`web/`)
 
-Vanilla HTML/JS/CSS, no build step. 4 hash-routed screens: Dashboard (#/), Sessions (#/sessions), Annotation (#/sessions/{name}), Training (#/training). Canvas-based 4-point polygon annotation.
+Vanilla HTML/JS/CSS, no build step. 4 hash-routed screens: Dashboard (#/), Sessions (#/sessions), Annotation (#/sessions/{name}), Training (#/training). Canvas-based polygon annotation with `line` mode (2 points per side) and `curve` mode (multi-point spline edges), saved as YOLO polygon labels.
 
 ## Key Conventions
 

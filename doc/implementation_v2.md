@@ -255,7 +255,7 @@ def reload_model(self, model_path: str):
 | GET | `/api/sessions/{name}/frames` | セッション内フレーム一覧（アノテーション有無付き） |
 | GET | `/api/sessions/{name}/frames/{frame}` | フレーム画像取得（JPEG） |
 | GET | `/api/sessions/{name}/frames/{frame}/annotation` | アノテーション取得 |
-| PUT | `/api/sessions/{name}/frames/{frame}/annotation` | 4点アノテーション保存 `{points: [[x,y]...]}` |
+| PUT | `/api/sessions/{name}/frames/{frame}/annotation` | ポリゴンアノテーション保存 `{points: [[x,y]...]}` |
 | DELETE | `/api/sessions/{name}/frames/{frame}/annotation` | アノテーション削除 |
 | GET | `/api/models` | モデルファイル一覧 |
 | POST | `/api/training/start` | 学習開始 `{epochs, batch_size, img_size}` |
@@ -360,7 +360,9 @@ Vanilla HTML/JS/CSS。フレームワークなし（Jetson 上でビルド不要
 
 3. **アノテーション** (`#/sessions/{name}`):
    - セッション内フレームサムネイル一覧（アノテーション済みマーク付き）
-   - フレーム選択 → Canvas 上で 4 点タップ → ポリゴン描画
+   - フレーム選択 → Canvas 上でポリゴンアノテーション
+   - `line` モード: 左右エッジを各2点で指定し、画像境界まで延長して帯領域を生成
+   - `curve` モード: 左右エッジを複数点で指定し、スプライン補間した境界と画像境界から帯領域を生成
    - 保存 / クリア / 削除ボタン
 
 4. **学習** (`#/training`):

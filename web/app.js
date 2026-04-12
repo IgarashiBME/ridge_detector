@@ -15,6 +15,8 @@ const App = {
   annLeftLine: [],     // 2 points defining left edge line
   annRightLine: [],    // 2 points defining right edge line
   annLoadedPoly: null, // non-null when loaded polygon can't be reconstructed into lines
+  annMode: 'line',     // 'line' (2+2 points) or 'curve' (N+N points)
+  annCurveSide: 'left', // which side is being edited in curve mode
   annImage: null,
   annCanvas: null,
   annCtx: null,
@@ -557,6 +559,8 @@ const App = {
     this.annLeftLine = [];
     this.annRightLine = [];
     this.annLoadedPoly = null;
+    this.annCurveSide = 'left';
+    this._updateCurveConfirmBtn();
 
     // Highlight selection
     document.querySelectorAll('.frame-thumb').forEach(el => el.classList.remove('selected'));
@@ -635,6 +639,60 @@ const App = {
     const idx = this._currentFrameIndex();
     if (idx >= 0 && idx < this.annFrameList.length - 1) {
       this.selectFrame(this.annFrameList[idx + 1]);
+    }
+  },
+
+  // ----------------------------------------------------------------
+  // Annotation Mode
+  // ----------------------------------------------------------------
+
+  setAnnMode(mode) {
+    if (mode === this.annMode) return;
+    this.annMode = mode;
+    this.annLeftLine = [];
+    this.annRightLine = [];
+    this.annPoints = [];
+    this.annLoadedPoly = null;
+    this.annCurveSide = 'left';
+
+    document.getElementById('ann-mode-line').classList.toggle('active', mode === 'line');
+    document.getElementById('ann-mode-curve').classList.toggle('active', mode === 'curve');
+
+    const helpEl = document.getElementById('ann-help');
+    if (helpEl) {
+      helpEl.textContent = mode === 'line'
+        ? 'Left edge 2 points (cyan), then right edge 2 points (orange). Lines extend to image boundary.'
+        : 'Tap points along LEFT edge top→bottom (cyan), press confirm, then RIGHT edge (orange). Curves extend via tangent.';
+    }
+    this._updateCurveConfirmBtn();
+    this._updateStepIndicator();
+    this.drawAnnotation();
+  },
+
+  confirmCurveSide() {
+    if (this.annMode !== 'curve') return;
+    if (this.annCurveSide === 'left' && this.annLeftLine.length >= 2) {
+      this.annCurveSide = 'right';
+    }
+    this._updateCurveConfirmBtn();
+    this._updateStepIndicator();
+  },
+
+  _updateCurveConfirmBtn() {
+    const wrap = document.getElementById('ann-curve-confirm');
+    const btn = document.getElementById('ann-curve-confirm-btn');
+    if (!wrap || !btn) return;
+    if (this.annMode !== 'curve') {
+      wrap.style.display = 'none';
+      return;
+    }
+    wrap.style.display = 'block';
+    if (this.annCurveSide === 'left') {
+      btn.textContent = 'Left done \u2192 Right';
+      btn.disabled = this.annLeftLine.length < 2;
+    } else {
+      btn.textContent = 'Right done';
+      btn.disabled = true;
     }
   },
 
@@ -720,6 +778,298 @@ const App = {
     return out;
   },
 
+  // ----------------------------------------------------------------
+  // Catmull-Rom spline helpers (for curve mode)
+  // ----------------------------------------------------------------
+
+  // Evaluate Catmull-Rom spline at parameter t in [0,1] between p1 and p2,
+  // using p0 and p3 as neighbouring control points.
+  _catmullRom(p0, p1, p2, p3, t) {
+    const t2 = t * t, t3 = t2 * t;
+    const x = 0.5 * ((2 * p1[0]) +
+      (-p0[0] + p2[0]) * t +
+      (2 * p0[0] - 5 * p1[0] + 4 * p2[0] - p3[0]) * t2 +
+      (-p0[0] + 3 * p1[0] - 3 * p2[0] + p3[0]) * t3);
+    const y = 0.5 * ((2 * p1[1]) +
+      (-p0[1] + p2[1]) * t +
+      (2 * p0[1] - 5 * p1[1] + 4 * p2[1] - p3[1]) * t2 +
+      (-p0[1] + 3 * p1[1] - 3 * p2[1] + p3[1]) * t3);
+    return [x, y];
+  },
+
+  // Generate dense points along a Catmull-Rom spline through pts (sorted top→bottom).
+  // segmentsPerSpan: number of line segments per span between consecutive control points.
+  _splinePoints(pts, segmentsPerSpan) {
+    if (pts.length < 2) return pts.slice();
+    const segs = segmentsPerSpan || 20;
+    const result = [];
+    for (let i = 0; i < pts.length - 1; i++) {
+      const p0 = pts[Math.max(0, i - 1)];
+      const p1 = pts[i];
+      const p2 = pts[i + 1];
+      const p3 = pts[Math.min(pts.length - 1, i + 2)];
+      for (let s = 0; s < segs; s++) {
+        result.push(this._catmullRom(p0, p1, p2, p3, s / segs));
+      }
+    }
+    result.push(pts[pts.length - 1]);
+    return result;
+  },
+
+  // Compute tangent direction at endpoints of a Catmull-Rom spline.
+  // Returns { top: [dx,dy], bottom: [dx,dy] } (unnormalized, pointing outward from curve).
+  _splineTangents(pts) {
+    if (pts.length < 2) return null;
+    const n = pts.length;
+    // Catmull-Rom tangent at t=0 of span (p0,p1,p2,p3) = 0.5*(p2-p0)
+    // First span: p0 clamped to pts[0], so tangent = 0.5*(pts[1] - pts[0])
+    const topDx = 0.5 * (pts[1][0] - pts[0][0]);
+    const topDy = 0.5 * (pts[1][1] - pts[0][1]);
+
+    // Catmull-Rom tangent at t=1 of span (p0,p1,p2,p3) = 0.5*(p3-p1)
+    // Last span: p3 clamped to pts[n-1], so tangent = 0.5*(pts[n-1] - pts[n-2])
+    const botDx = 0.5 * (pts[n - 1][0] - pts[n - 2][0]);
+    const botDy = 0.5 * (pts[n - 1][1] - pts[n - 2][1]);
+
+    return {
+      top: [-topDx, -topDy],   // outward = opposite to curve direction (curve goes top→bottom)
+      bottom: [botDx, botDy],  // outward = same as curve direction at end
+    };
+  },
+
+  // Extend a spline curve to the image boundary [0,1]x[0,1] using tangent at endpoints.
+  // Returns the full array of points from top boundary → spline → bottom boundary.
+  _extendSplineToBounds(pts) {
+    if (pts.length < 2) return pts.slice();
+    const dense = this._splinePoints(pts, 20);
+    const tangents = this._splineTangents(pts);
+    if (!tangents) return dense;
+
+    const result = [];
+
+    // Extend top: from pts[0] along -tangent direction until y=0 (or x boundary)
+    const topPt = dense[0];
+    const td = tangents.top;
+    if (topPt[1] > 0.001 && (Math.abs(td[0]) > 1e-9 || Math.abs(td[1]) > 1e-9)) {
+      // Find t where y = 0: topPt[1] + t*td[1] = 0
+      const candidates = [];
+      if (Math.abs(td[1]) > 1e-9) {
+        const t = -topPt[1] / td[1];
+        if (t > 0) {
+          const x = topPt[0] + t * td[0];
+          if (x >= 0 && x <= 1) candidates.push([x, 0]);
+        }
+      }
+      // Also check x=0 and x=1
+      if (Math.abs(td[0]) > 1e-9) {
+        for (const xb of [0, 1]) {
+          const t = (xb - topPt[0]) / td[0];
+          if (t > 0) {
+            const y = topPt[1] + t * td[1];
+            if (y >= 0 && y <= 1) candidates.push([xb, y]);
+          }
+        }
+      }
+      if (candidates.length > 0) {
+        // Pick closest intersection
+        candidates.sort((a, b) => {
+          const da = (a[0] - topPt[0]) ** 2 + (a[1] - topPt[1]) ** 2;
+          const db = (b[0] - topPt[0]) ** 2 + (b[1] - topPt[1]) ** 2;
+          return da - db;
+        });
+        result.push(candidates[0]);
+      }
+    }
+
+    result.push(...dense);
+
+    // Extend bottom: from pts[last] along tangent direction until y=1 (or x boundary)
+    const botPt = dense[dense.length - 1];
+    const bd = tangents.bottom;
+    if (botPt[1] < 0.999 && (Math.abs(bd[0]) > 1e-9 || Math.abs(bd[1]) > 1e-9)) {
+      const candidates = [];
+      if (Math.abs(bd[1]) > 1e-9) {
+        const t = (1 - botPt[1]) / bd[1];
+        if (t > 0) {
+          const x = botPt[0] + t * bd[0];
+          if (x >= 0 && x <= 1) candidates.push([x, 1]);
+        }
+      }
+      if (Math.abs(bd[0]) > 1e-9) {
+        for (const xb of [0, 1]) {
+          const t = (xb - botPt[0]) / bd[0];
+          if (t > 0) {
+            const y = botPt[1] + t * bd[1];
+            if (y >= 0 && y <= 1) candidates.push([xb, y]);
+          }
+        }
+      }
+      if (candidates.length > 0) {
+        candidates.sort((a, b) => {
+          const da = (a[0] - botPt[0]) ** 2 + (a[1] - botPt[1]) ** 2;
+          const db = (b[0] - botPt[0]) ** 2 + (b[1] - botPt[1]) ** 2;
+          return da - db;
+        });
+        result.push(candidates[0]);
+      }
+    }
+
+    return result;
+  },
+
+  _isOnBoundary(pt, eps = 1e-6) {
+    return pt[0] <= eps || pt[0] >= 1 - eps || pt[1] <= eps || pt[1] >= 1 - eps;
+  },
+
+  _perimeterPos(pt) {
+    const x = Math.max(0, Math.min(1, pt[0]));
+    const y = Math.max(0, Math.min(1, pt[1]));
+    const eps = 1e-6;
+    if (Math.abs(y) <= eps) return x;
+    if (Math.abs(x - 1) <= eps) return 1 + y;
+    if (Math.abs(y - 1) <= eps) return 3 - x;
+    if (Math.abs(x) <= eps) return 4 - y;
+    return null;
+  },
+
+  _boundaryCorner(pos) {
+    if (pos === 1) return [1, 0];
+    if (pos === 2) return [1, 1];
+    if (pos === 3) return [0, 1];
+    return [0, 0];
+  },
+
+  _dedupePathPoints(pts, eps = 1e-9) {
+    const out = [];
+    for (const p of pts) {
+      if (!out.length) {
+        out.push(p);
+        continue;
+      }
+      const q = out[out.length - 1];
+      if (Math.abs(p[0] - q[0]) > eps || Math.abs(p[1] - q[1]) > eps) out.push(p);
+    }
+    return out;
+  },
+
+  _boundaryPath(a, b, dir) {
+    const pa = this._perimeterPos(a);
+    const pb = this._perimeterPos(b);
+    if (pa === null || pb === null) return [a, b];
+
+    if (dir === 'ccw') {
+      const rev = this._boundaryPath(b, a, 'cw').slice().reverse();
+      return this._dedupePathPoints(rev);
+    }
+
+    let end = pb;
+    if (end < pa) end += 4;
+    const pts = [a];
+    for (const c0 of [1, 2, 3, 4]) {
+      let c = c0;
+      if (c <= pa) c += 4;
+      if (c > pa && c < end) pts.push(this._boundaryCorner(c0));
+    }
+    pts.push(b);
+    return this._dedupePathPoints(pts);
+  },
+
+  _pointInPolygon(pt, poly) {
+    if (!poly || poly.length < 3) return false;
+    let inside = false;
+    for (let i = 0, j = poly.length - 1; i < poly.length; j = i++) {
+      const xi = poly[i][0], yi = poly[i][1];
+      const xj = poly[j][0], yj = poly[j][1];
+      const intersect = ((yi > pt[1]) !== (yj > pt[1])) &&
+        (pt[0] < ((xj - xi) * (pt[1] - yi)) / ((yj - yi) || 1e-12) + xi);
+      if (intersect) inside = !inside;
+    }
+    return inside;
+  },
+
+  _curveReferencePoint(pts) {
+    if (!pts || pts.length === 0) return [0.5, 0.5];
+    let sx = 0, sy = 0;
+    for (const p of pts) {
+      sx += p[0];
+      sy += p[1];
+    }
+    return [sx / pts.length, sy / pts.length];
+  },
+
+  _halfRegionFromCurve(curvePts, refPt) {
+    if (!curvePts || curvePts.length < 2) return null;
+    const start = curvePts[0];
+    const end = curvePts[curvePts.length - 1];
+    if (!this._isOnBoundary(start) || !this._isOnBoundary(end)) return null;
+
+    const cwArc = this._boundaryPath(end, start, 'cw').slice(1);
+    const ccwArc = this._boundaryPath(end, start, 'ccw').slice(1);
+    const polyA = this._dedupePathPoints(curvePts.concat(cwArc));
+    const polyB = this._dedupePathPoints(curvePts.concat(ccwArc));
+    const inA = this._pointInPolygon(refPt, polyA);
+    const inB = this._pointInPolygon(refPt, polyB);
+
+    if (inA && !inB) return polyA;
+    if (inB && !inA) return polyB;
+    return polyA;
+  },
+
+  _drawPath(ctx, poly, scale) {
+    if (!poly || poly.length < 3) return;
+    const s = scale || 1;
+    ctx.beginPath();
+    ctx.moveTo(poly[0][0] * s, poly[0][1] * s);
+    for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i][0] * s, poly[i][1] * s);
+    ctx.closePath();
+  },
+
+  _traceMaskContour(alpha, size) {
+    const edgeMap = new Map();
+    const addEdge = (x1, y1, x2, y2) => {
+      const start = `${x1},${y1}`;
+      const end = `${x2},${y2}`;
+      if (!edgeMap.has(start)) edgeMap.set(start, []);
+      edgeMap.get(start).push(end);
+    };
+    const inside = (x, y) => x >= 0 && y >= 0 && x < size && y < size && alpha[y * size + x] > 0;
+
+    for (let y = 0; y < size; y++) {
+      for (let x = 0; x < size; x++) {
+        if (!inside(x, y)) continue;
+        if (!inside(x, y - 1)) addEdge(x, y, x + 1, y);
+        if (!inside(x + 1, y)) addEdge(x + 1, y, x + 1, y + 1);
+        if (!inside(x, y + 1)) addEdge(x + 1, y + 1, x, y + 1);
+        if (!inside(x - 1, y)) addEdge(x, y + 1, x, y);
+      }
+    }
+
+    const loops = [];
+    while (edgeMap.size > 0) {
+      const start = edgeMap.keys().next().value;
+      const loop = [];
+      let cur = start;
+      let guard = 0;
+
+      while (cur && guard < size * size * 8) {
+        const [xs, ys] = cur.split(',').map(Number);
+        loop.push([xs / size, ys / size]);
+        const nexts = edgeMap.get(cur);
+        if (!nexts || nexts.length === 0) break;
+        const next = nexts.pop();
+        if (nexts.length === 0) edgeMap.delete(cur);
+        cur = next;
+        if (cur === start) break;
+        guard++;
+      }
+      if (loop.length >= 3) loops.push(loop);
+    }
+
+    if (loops.length === 0) return null;
+    loops.sort((a, b) => b.length - a.length);
+    return loops[0];
+  },
+
   // Compute polygon from left and right edge lines clipped to image boundary.
   // Returns array of normalized [x,y] points (4-6 vertices), or null.
   _computePolygonFromLines() {
@@ -750,8 +1100,81 @@ const App = {
     return poly;
   },
 
+  // Sample a spline curve (with tangent extensions) at a given y coordinate.
+  // Returns the x coordinate, or null if no intersection found.
+  _sampleSplineAtY(extPts, y) {
+    for (let i = 0; i < extPts.length - 1; i++) {
+      const y0 = extPts[i][1], y1 = extPts[i + 1][1];
+      const yMin = Math.min(y0, y1), yMax = Math.max(y0, y1);
+      if (y >= yMin && y <= yMax && Math.abs(y1 - y0) > 1e-12) {
+        const t = (y - y0) / (y1 - y0);
+        return extPts[i][0] + t * (extPts[i + 1][0] - extPts[i][0]);
+      }
+    }
+    return null;
+  },
+
+  // Compute polygon from left and right spline curves (curve mode).
+  // Builds the image-space band between the two curves, closed by image boundaries.
+  _computePolygonFromCurves() {
+    if (this.annLeftLine.length < 2 || this.annRightLine.length < 2) return null;
+
+    const leftExt = this._extendSplineToBounds(this.annLeftLine);
+    const rightExt = this._extendSplineToBounds(this.annRightLine);
+    if (leftExt.length < 2 || rightExt.length < 2) return null;
+
+    const leftRegion = this._halfRegionFromCurve(
+      leftExt,
+      this._curveReferencePoint(rightExt)
+    );
+    const rightRegion = this._halfRegionFromCurve(
+      rightExt,
+      this._curveReferencePoint(leftExt)
+    );
+    if (!leftRegion || !rightRegion) return null;
+
+    const size = 1024;
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d', { willReadFrequently: true });
+    if (!ctx) return null;
+
+    ctx.clearRect(0, 0, size, size);
+    ctx.fillStyle = '#fff';
+    this._drawPath(ctx, leftRegion, size);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'destination-in';
+    this._drawPath(ctx, rightRegion, size);
+    ctx.fill();
+    ctx.globalCompositeOperation = 'source-over';
+
+    const img = ctx.getImageData(0, 0, size, size).data;
+    const alpha = new Uint8Array(size * size);
+    for (let i = 0; i < size * size; i++) alpha[i] = img[i * 4 + 3] > 0 ? 1 : 0;
+
+    const poly = this._traceMaskContour(alpha, size);
+    if (!poly || poly.length < 3) return null;
+
+    for (let i = 0; i < poly.length; i++) {
+      poly[i] = [Math.max(0, Math.min(1, poly[i][0])), Math.max(0, Math.min(1, poly[i][1]))];
+    }
+    return this._dedupePathPoints(poly);
+  },
+
   // Get annotation step label
   _annStepLabel() {
+    if (this.annMode === 'curve') {
+      const lN = this.annLeftLine.length;
+      const rN = this.annRightLine.length;
+      if (this.annCurveSide === 'left') {
+        if (lN === 0) return 'Tap points along LEFT edge (top→bottom)';
+        return `LEFT edge: ${lN} points — add more or press confirm`;
+      }
+      if (rN === 0) return 'Tap points along RIGHT edge (top→bottom)';
+      if (rN < 2) return `RIGHT edge: ${rN} point — add at least 1 more`;
+      return `Done — ${lN}L + ${rN}R points — Save or adjust`;
+    }
     const total = this.annLeftLine.length + this.annRightLine.length;
     if (total === 0) return 'Tap 1st point of LEFT edge';
     if (total === 1) return 'Tap 2nd point of LEFT edge';
@@ -832,14 +1255,23 @@ const App = {
         return;
       }
 
-      // Otherwise add new point if not full
-      const total = this.annLeftLine.length + this.annRightLine.length;
-      if (total >= 4) return;
-
-      if (this.annLeftLine.length < 2) {
-        this.annLeftLine.push([x, y]);
+      // Otherwise add new point
+      if (this.annMode === 'line') {
+        const total = this.annLeftLine.length + this.annRightLine.length;
+        if (total >= 4) return;
+        if (this.annLeftLine.length < 2) {
+          this.annLeftLine.push([x, y]);
+        } else {
+          this.annRightLine.push([x, y]);
+        }
       } else {
-        this.annRightLine.push([x, y]);
+        // Curve mode: add to current side
+        if (this.annCurveSide === 'left') {
+          this.annLeftLine.push([x, y]);
+        } else {
+          this.annRightLine.push([x, y]);
+        }
+        this._updateCurveConfirmBtn();
       }
       this._updateStepIndicator();
       this.drawAnnotation();
@@ -930,6 +1362,17 @@ const App = {
       }
     };
 
+    // Helper: draw a polyline path (array of [x,y] normalized)
+    const drawPolyline = (pts, color) => {
+      if (pts.length < 2) return;
+      ctx.strokeStyle = color;
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.moveTo(pts[0][0] * w, pts[0][1] * h);
+      for (let i = 1; i < pts.length; i++) ctx.lineTo(pts[i][0] * w, pts[i][1] * h);
+      ctx.stroke();
+    };
+
     // Helper: draw a labeled point
     const drawPt = (pt, color, label) => {
       const px = pt[0] * w, py = pt[1] * h;
@@ -943,49 +1386,96 @@ const App = {
       ctx.fillText(label, px, py + 3);
     };
 
-    // Compute polygon and fill if both lines are complete
-    const poly = this._computePolygonFromLines();
-    if (poly) {
-      ctx.fillStyle = 'rgba(233, 69, 96, 0.18)';
-      ctx.beginPath();
-      ctx.moveTo(poly[0][0] * w, poly[0][1] * h);
-      for (let i = 1; i < poly.length; i++) {
-        ctx.lineTo(poly[i][0] * w, poly[i][1] * h);
-      }
-      ctx.closePath();
-      ctx.fill();
+    if (this.annMode === 'curve') {
+      // --- Curve mode drawing ---
+      const poly = this._computePolygonFromCurves();
+      if (poly) {
+        ctx.fillStyle = 'rgba(233, 69, 96, 0.18)';
+        ctx.beginPath();
+        ctx.moveTo(poly[0][0] * w, poly[0][1] * h);
+        for (let i = 1; i < poly.length; i++) ctx.lineTo(poly[i][0] * w, poly[i][1] * h);
+        ctx.closePath();
+        ctx.fill();
 
-      // Midline (green) — use boundary intersection midpoints, independent of click order
-      const leftHits = this._lineImageIntersections(this.annLeftLine[0], this.annLeftLine[1]);
-      const rightHits = this._lineImageIntersections(this.annRightLine[0], this.annRightLine[1]);
-      if (leftHits.length >= 2 && rightHits.length >= 2) {
-        const midP1 = [(leftHits[0][0] + rightHits[0][0]) / 2,
-                        (leftHits[0][1] + rightHits[0][1]) / 2];
-        const midP2 = [(leftHits[1][0] + rightHits[1][0]) / 2,
-                        (leftHits[1][1] + rightHits[1][1]) / 2];
-        drawExtLine(midP1, midP2, '#00ff00');
+        // Midline (green): average of left and right at each y
+        const leftExt = this._extendSplineToBounds(this.annLeftLine);
+        const rightExt = this._extendSplineToBounds(this.annRightLine);
+        const midPts = [];
+        for (let i = 0; i <= 60; i++) {
+          const y = i / 60;
+          const lx = this._sampleSplineAtY(leftExt, y);
+          const rx = this._sampleSplineAtY(rightExt, y);
+          if (lx !== null && rx !== null) {
+            midPts.push([(lx + rx) / 2, y]);
+          }
+        }
+        drawPolyline(midPts, '#00ff00');
       }
+
+      // Draw spline curves (extended to boundary)
+      if (leftLen >= 2) drawPolyline(this._extendSplineToBounds(this.annLeftLine), '#00e5ff');
+      else if (leftLen === 1) drawPt(this.annLeftLine[0], '#00e5ff', 'L1');
+
+      if (rightLen >= 2) drawPolyline(this._extendSplineToBounds(this.annRightLine), '#ffa500');
+      else if (rightLen === 1) drawPt(this.annRightLine[0], '#ffa500', 'R1');
+
+      // Draw control points
+      for (let i = 0; i < leftLen; i++) drawPt(this.annLeftLine[i], '#00e5ff', 'L' + (i + 1));
+      for (let i = 0; i < rightLen; i++) drawPt(this.annRightLine[i], '#ffa500', 'R' + (i + 1));
+    } else {
+      // --- Line mode drawing (original) ---
+      const poly = this._computePolygonFromLines();
+      if (poly) {
+        ctx.fillStyle = 'rgba(233, 69, 96, 0.18)';
+        ctx.beginPath();
+        ctx.moveTo(poly[0][0] * w, poly[0][1] * h);
+        for (let i = 1; i < poly.length; i++) {
+          ctx.lineTo(poly[i][0] * w, poly[i][1] * h);
+        }
+        ctx.closePath();
+        ctx.fill();
+
+        // Midline (green)
+        const leftHits = this._lineImageIntersections(this.annLeftLine[0], this.annLeftLine[1]);
+        const rightHits = this._lineImageIntersections(this.annRightLine[0], this.annRightLine[1]);
+        if (leftHits.length >= 2 && rightHits.length >= 2) {
+          const midP1 = [(leftHits[0][0] + rightHits[0][0]) / 2,
+                          (leftHits[0][1] + rightHits[0][1]) / 2];
+          const midP2 = [(leftHits[1][0] + rightHits[1][0]) / 2,
+                          (leftHits[1][1] + rightHits[1][1]) / 2];
+          drawExtLine(midP1, midP2, '#00ff00');
+        }
+      }
+
+      // Draw left line (cyan)
+      if (leftLen === 2) drawExtLine(this.annLeftLine[0], this.annLeftLine[1], '#00e5ff');
+
+      // Draw right line (orange)
+      if (rightLen === 2) drawExtLine(this.annRightLine[0], this.annRightLine[1], '#ffa500');
+
+      // Draw clicked points
+      for (let i = 0; i < leftLen; i++) drawPt(this.annLeftLine[i], '#00e5ff', 'L' + (i + 1));
+      for (let i = 0; i < rightLen; i++) drawPt(this.annRightLine[i], '#ffa500', 'R' + (i + 1));
     }
-
-    // Draw left line (cyan)
-    if (leftLen === 2) drawExtLine(this.annLeftLine[0], this.annLeftLine[1], '#00e5ff');
-
-    // Draw right line (orange)
-    if (rightLen === 2) drawExtLine(this.annRightLine[0], this.annRightLine[1], '#ffa500');
-
-    // Draw clicked points
-    for (let i = 0; i < leftLen; i++) drawPt(this.annLeftLine[i], '#00e5ff', 'L' + (i + 1));
-    for (let i = 0; i < rightLen; i++) drawPt(this.annRightLine[i], '#ffa500', 'R' + (i + 1));
   },
 
   async saveAnnotation() {
     if (!this.annSession || !this.annFrame) return;
 
-    const poly = this._computePolygonFromLines();
+    const poly = this.annMode === 'curve'
+      ? this._computePolygonFromCurves()
+      : this._computePolygonFromLines();
     if (!poly) {
-      alert('Place 2 points for each edge line (4 points total).');
+      alert(this.annMode === 'curve'
+        ? 'Place at least 2 points on each edge.'
+        : 'Place 2 points for each edge line (4 points total).');
       return;
     }
+
+    // For curve mode, keep enough points so saved masks match the on-screen shape.
+    const savePoly = (this.annMode === 'curve' && poly.length > 120)
+      ? this._downsamplePoly(poly, 120)
+      : poly;
 
     try {
       const res = await fetch(
@@ -993,7 +1483,7 @@ const App = {
         {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ points: poly }),
+          body: JSON.stringify({ points: savePoly }),
         }
       );
       if (res.ok) {
@@ -1013,11 +1503,35 @@ const App = {
     }
   },
 
+  // Downsample a polygon to approximately targetN points, evenly spaced by index.
+  _downsamplePoly(poly, targetN) {
+    if (poly.length <= targetN) return poly;
+    const result = [];
+    for (let i = 0; i < targetN; i++) {
+      const idx = Math.round(i * (poly.length - 1) / (targetN - 1));
+      result.push(poly[idx]);
+    }
+    return result;
+  },
+
   undoLastPoint() {
-    if (this.annRightLine.length > 0) {
-      this.annRightLine.pop();
-    } else if (this.annLeftLine.length > 0) {
-      this.annLeftLine.pop();
+    if (this.annMode === 'curve') {
+      if (this.annCurveSide === 'right' && this.annRightLine.length > 0) {
+        this.annRightLine.pop();
+        // If right is empty, go back to left editing
+        if (this.annRightLine.length === 0) {
+          this.annCurveSide = 'left';
+        }
+      } else if (this.annLeftLine.length > 0) {
+        this.annLeftLine.pop();
+      }
+      this._updateCurveConfirmBtn();
+    } else {
+      if (this.annRightLine.length > 0) {
+        this.annRightLine.pop();
+      } else if (this.annLeftLine.length > 0) {
+        this.annLeftLine.pop();
+      }
     }
     this._updateStepIndicator();
     this.drawAnnotation();
@@ -1028,6 +1542,10 @@ const App = {
     this.annRightLine = [];
     this.annPoints = [];
     this.annLoadedPoly = null;
+    if (this.annMode === 'curve') {
+      this.annCurveSide = 'left';
+      this._updateCurveConfirmBtn();
+    }
     this._updateStepIndicator();
     this.drawAnnotation();
   },
@@ -1043,6 +1561,10 @@ const App = {
       this.annRightLine = [];
       this.annPoints = [];
       this.annLoadedPoly = null;
+      if (this.annMode === 'curve') {
+        this.annCurveSide = 'left';
+        this._updateCurveConfirmBtn();
+      }
       this._updateStepIndicator();
       this.drawAnnotation();
 
