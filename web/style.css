@@ -116,7 +116,11 @@ nav a:hover { color: var(--text); }
   display: flex;
   gap: 8px;
   flex-wrap: wrap;
+  align-items: center;
 }
+
+.ann-mode-btn { padding: 6px 12px; font-size: 12px; }
+.ann-mode-btn.active { background: var(--accent); color: #fff; }
 
 .model-select-row {
   display: flex;

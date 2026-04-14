@@ -110,16 +110,23 @@
         <canvas id="annotation-canvas"></canvas>
       </div>
       <div class="btn-row" style="margin-top:8px;">
+        <div class="ann-mode-toggle" style="display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-right:8px;">
+          <button class="btn ann-mode-btn active" id="ann-mode-line" onclick="App.setAnnMode('line')" style="border:none; border-radius:0;">Line</button>
+          <button class="btn ann-mode-btn" id="ann-mode-curve" onclick="App.setAnnMode('curve')" style="border:none; border-radius:0;">Curve</button>
+        </div>
         <button class="btn btn-primary" onclick="App.saveAnnotation()">Save</button>
         <button class="btn" onclick="App.undoLastPoint()">Undo</button>
         <button class="btn btn-danger" onclick="App.clearAnnotation()">Clear</button>
         <button class="btn btn-stop" onclick="App.deleteAnnotation()">Delete</button>
         <button class="btn btn-detect" onclick="App.startTestDetect()">Test Detect</button>
       </div>
+      <div id="ann-curve-confirm" style="display:none; margin-top:6px;">
+        <button class="btn" onclick="App.confirmCurveSide()" id="ann-curve-confirm-btn">Left done → Right</button>
+      </div>
       <p id="ann-step" style="font-size:12px; color:var(--accent); margin-top:8px; font-weight:600;">
         Tap 1st point of LEFT edge
       </p>
-      <p style="font-size:11px; color:var(--text2); margin-top:4px;">
+      <p id="ann-help" style="font-size:11px; color:var(--text2); margin-top:4px;">
         Left edge 2 points (cyan), then right edge 2 points (orange). Lines extend to image boundary.
       </p>
     </div>

@@ -79,7 +79,7 @@ def parse_args():
 
     # Recording
     parser.add_argument(
-        '--capture-probability', type=float, default=0.02,
+        '--capture-probability', type=float, default=0.04,
         help='Random frame capture probability during recording (default: 0.02)')
 
     # Display
