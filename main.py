@@ -171,6 +171,17 @@ def main():
         mode_manager=mode_manager,
     )
 
+    # Playback manager
+    from playback.manager import PlaybackManager
+    playback_manager = PlaybackManager(
+        state=state,
+        save_dir=args.save_dir,
+        inference_queue=inference_queue,
+        mode_manager=mode_manager,
+        inference_thread=inference,
+        process_width=args.process_width,
+    )
+
     # Register mode callbacks
     # Note: start_training/start_evaluating are None because they are started
     # via API with parameters. The mode transition happens in routes_api.py
@@ -188,6 +199,8 @@ def main():
         stop_training=lambda: training_manager.stop(),
         start_evaluating=None,
         stop_evaluating=lambda: evaluation_manager.stop(),
+        start_playback=None,
+        stop_playback=lambda: playback_manager.stop(),
     )
 
     # Start workers
@@ -202,6 +215,7 @@ def main():
         inference_thread=inference,
         training_manager=training_manager,
         evaluation_manager=evaluation_manager,
+        playback_manager=playback_manager,
         host=args.host,
         port=args.port,
     )
@@ -229,7 +243,7 @@ def main():
 
     # Shutdown
     _shutdown(state, mode_manager, camera, inference, training_manager,
-              evaluation_manager)
+              evaluation_manager, playback_manager)
 
 
 def _run_headless(state, mode_manager, camera, inference):
@@ -250,7 +264,7 @@ def _run_headless(state, mode_manager, camera, inference):
 
 
 def _shutdown(state, mode_manager, camera, inference, training_manager,
-              evaluation_manager=None):
+              evaluation_manager=None, playback_manager=None):
     """Graceful shutdown of all components."""
     state.append_log("Shutting down...")
 
@@ -261,6 +275,8 @@ def _shutdown(state, mode_manager, camera, inference, training_manager,
     training_manager.stop()
     if evaluation_manager:
         evaluation_manager.stop()
+    if playback_manager:
+        playback_manager.stop()
 
     # Stop workers
     inference.request_stop()

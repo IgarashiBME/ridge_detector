@@ -44,6 +44,8 @@ class ModeManager:
         self._stop_training: Optional[Callable] = None
         self._start_evaluating: Optional[Callable] = None
         self._stop_evaluating: Optional[Callable] = None
+        self._start_playback: Optional[Callable] = None
+        self._stop_playback: Optional[Callable] = None
 
     def register_callbacks(
         self,
@@ -55,6 +57,8 @@ class ModeManager:
         stop_training: Optional[Callable] = None,
         start_evaluating: Optional[Callable] = None,
         stop_evaluating: Optional[Callable] = None,
+        start_playback: Optional[Callable] = None,
+        stop_playback: Optional[Callable] = None,
     ):
         self._start_recording = start_recording
         self._stop_recording = stop_recording
@@ -64,6 +68,8 @@ class ModeManager:
         self._stop_training = stop_training
         self._start_evaluating = start_evaluating
         self._stop_evaluating = stop_evaluating
+        self._start_playback = start_playback
+        self._stop_playback = stop_playback
 
     def request_mode(self, target: Mode, source: str = "API") -> Tuple[bool, str]:
         """Request a mode transition.
@@ -124,6 +130,13 @@ class ModeManager:
             self._state.append_log(f"Evaluation stopped ({source}).")
             return True, "Evaluation stopped"
 
+        if current == Mode.PLAYBACK:
+            self._state.set_mode(Mode.IDLE)
+            if self._stop_playback:
+                self._stop_playback()
+            self._state.append_log(f"Playback stopped ({source}).")
+            return True, "Playback stopped"
+
         return False, f"Unknown mode: {current}"
 
     def _start_mode(self, target: Mode, source: str) -> Tuple[bool, str]:
@@ -155,6 +168,13 @@ class ModeManager:
                 self._start_evaluating()
             self._state.append_log(f"Evaluation started ({source}).")
             return True, "Evaluation started"
+
+        if target == Mode.PLAYBACK:
+            self._state.set_mode(Mode.PLAYBACK)
+            if self._start_playback:
+                self._start_playback()
+            self._state.append_log(f"Playback started ({source}).")
+            return True, "Playback started"
 
         return False, f"Unknown target mode: {target}"
 

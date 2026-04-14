@@ -17,6 +17,7 @@
     <a href="#/sessions" data-page="sessions">Sessions</a>
     <a href="#/training" data-page="training">Training</a>
     <a href="#/evaluation" data-page="evaluation">Evaluation</a>
+    <a href="#/playback" data-page="playback">Playback</a>
   </nav>
 
   <!-- Dashboard -->
@@ -297,6 +298,82 @@
       <h3>Past Evaluations</h3>
       <div id="eval-history-list">
         <p style="color:var(--text2)">No past evaluations</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- Playback -->
+  <div id="page-playback" class="page">
+    <div class="card">
+      <h3>Playback Status</h3>
+      <div id="playback-status">
+        <p id="playback-phase">Not running</p>
+        <div class="progress-bar">
+          <div class="progress-fill" id="playback-progress" style="width:0%"></div>
+        </div>
+        <p style="font-size:12px; color:var(--text2);" id="playback-detail"></p>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Live Preview</h3>
+      <img id="playback-preview" src="" alt="No preview">
+    </div>
+
+    <div class="card">
+      <h3>Detection</h3>
+      <div class="stats-grid">
+        <div class="stat-item">
+          <div class="stat-value" id="pb-stat-a">--</div>
+          <div class="stat-label">a (slope)</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="pb-stat-b">--</div>
+          <div class="stat-label">b (offset)</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="pb-stat-fps">--</div>
+          <div class="stat-label">FPS</div>
+        </div>
+        <div class="stat-item">
+          <div class="stat-value" id="pb-stat-serial">--</div>
+          <div class="stat-label">Serial TX</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="card">
+      <h3>Source</h3>
+      <div class="ann-mode-toggle" style="display:inline-flex; border:1px solid var(--border); border-radius:6px; overflow:hidden; margin-bottom:8px;">
+        <button class="btn ann-mode-btn active" id="playback-src-svo"
+                onclick="App.setPlaybackSource('svo')"
+                style="border:none; border-radius:0;">SVO Session</button>
+        <button class="btn ann-mode-btn" id="playback-src-video"
+                onclick="App.setPlaybackSource('video')"
+                style="border:none; border-radius:0;">Video File</button>
+      </div>
+      <div class="model-select-row" id="playback-session-row">
+        <label for="playback-session-select">SVO Session:</label>
+        <select id="playback-session-select">
+          <option value="">--</option>
+        </select>
+      </div>
+      <div class="model-select-row" id="playback-video-row" style="display:none;">
+        <label for="playback-video-select">Video File:</label>
+        <select id="playback-video-select">
+          <option value="">--</option>
+        </select>
+      </div>
+      <p style="font-size:11px; color:var(--text2); margin-top:4px;">
+        Place video files (.mp4 / .avi / .mov / .mkv) in <code>~/ridge_data/videos/</code>.
+      </p>
+      <div class="btn-row" style="margin-top:8px;">
+        <button class="btn btn-primary" id="btn-playback-start"
+                onclick="App.startPlayback()">Start</button>
+        <button class="btn" id="btn-playback-pause"
+                onclick="App.togglePlaybackPause()" disabled>Pause</button>
+        <button class="btn btn-stop" id="btn-playback-stop"
+                onclick="App.stopPlayback()" disabled>Stop</button>
       </div>
     </div>
   </div>

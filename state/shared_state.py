@@ -24,6 +24,7 @@ class Mode(str, Enum):
     DETECTING = "DETECTING"
     TRAINING = "TRAINING"
     EVALUATING = "EVALUATING"
+    PLAYBACK = "PLAYBACK"
 
 
 @dataclass
@@ -44,6 +45,20 @@ class TrainingStatus:
     loss: float = 0.0
     phase: str = ""
     new_model_path: str = ""
+
+
+@dataclass
+class PlaybackStatus:
+    running: bool = False
+    paused: bool = False
+    source: str = ""        # "svo" or "video"
+    source_name: str = ""   # session name or video filename (display)
+    session_name: str = ""  # backward-compat field (same as source_name for SVO)
+    svo_path: str = ""
+    current_frame: int = 0
+    total_frames: int = 0
+    skipped_frames: int = 0
+    phase: str = ""
 
 
 @dataclass
@@ -85,6 +100,9 @@ class SharedState:
         # Evaluation
         self._evaluation = EvaluationStatus()
 
+        # Playback
+        self._playback = PlaybackStatus()
+
         # Log ring buffer
         self._log_entries: deque = deque(maxlen=200)
 
@@ -105,6 +123,7 @@ class SharedState:
         self.detection_updated = threading.Event()
         self.training_updated = threading.Event()
         self.evaluation_updated = threading.Event()
+        self.playback_updated = threading.Event()
         self.frame_updated = threading.Event()
         self.log_updated = threading.Event()
 
@@ -153,7 +172,8 @@ class SharedState:
     # ----------------------------------------------------------------
     def get_display_frame(self) -> Optional[np.ndarray]:
         with self._lock:
-            if self._mode == Mode.DETECTING and self._annotated_frame is not None:
+            if self._mode in (Mode.DETECTING, Mode.PLAYBACK) \
+                    and self._annotated_frame is not None:
                 return self._annotated_frame.copy()
             if self._preview_frame is not None:
                 return self._preview_frame.copy()
@@ -245,6 +265,31 @@ class SharedState:
                 if hasattr(self._evaluation, k):
                     setattr(self._evaluation, k, v)
         self.evaluation_updated.set()
+
+    # ----------------------------------------------------------------
+    # Playback
+    # ----------------------------------------------------------------
+    def get_playback(self) -> PlaybackStatus:
+        with self._lock:
+            return PlaybackStatus(
+                running=self._playback.running,
+                paused=self._playback.paused,
+                source=self._playback.source,
+                source_name=self._playback.source_name,
+                session_name=self._playback.session_name,
+                svo_path=self._playback.svo_path,
+                current_frame=self._playback.current_frame,
+                total_frames=self._playback.total_frames,
+                skipped_frames=self._playback.skipped_frames,
+                phase=self._playback.phase,
+            )
+
+    def set_playback(self, **kwargs):
+        with self._lock:
+            for k, v in kwargs.items():
+                if hasattr(self._playback, k):
+                    setattr(self._playback, k, v)
+        self.playback_updated.set()
 
     # ----------------------------------------------------------------
     # Camera info
@@ -358,5 +403,17 @@ class SharedState:
                     "phase": self._evaluation.phase,
                     "model_name": self._evaluation.model_name,
                     "avg_iou": self._evaluation.avg_iou,
+                },
+                "playback": {
+                    "running": self._playback.running,
+                    "paused": self._playback.paused,
+                    "source": self._playback.source,
+                    "source_name": self._playback.source_name,
+                    "session_name": self._playback.session_name,
+                    "svo_path": self._playback.svo_path,
+                    "current_frame": self._playback.current_frame,
+                    "total_frames": self._playback.total_frames,
+                    "skipped_frames": self._playback.skipped_frames,
+                    "phase": self._playback.phase,
                 },
             }

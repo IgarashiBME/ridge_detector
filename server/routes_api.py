@@ -72,6 +72,15 @@ class TimeSyncRequest(BaseModel):
     client_epoch_ms: float
 
 
+class PlaybackStartRequest(BaseModel):
+    session: Optional[str] = None
+    video: Optional[str] = None
+
+
+class PlaybackPauseRequest(BaseModel):
+    paused: bool
+
+
 # ----------------------------------------------------------------
 # Helpers
 # ----------------------------------------------------------------
@@ -616,6 +625,124 @@ def list_session_evaluations(request: Request, name: str):
             continue
 
     return evaluations
+
+
+VIDEO_EXTS = (".mp4", ".avi", ".mov", ".mkv", ".m4v")
+
+
+def _get_videos_dir(request: Request) -> str:
+    return os.path.join(_get_save_dir(request), "videos")
+
+
+@router.get("/videos")
+def list_videos(request: Request):
+    """List video files in {save_dir}/videos/."""
+    videos_dir = _get_videos_dir(request)
+    if not os.path.isdir(videos_dir):
+        return []
+
+    import cv2
+    items = []
+    for name in sorted(os.listdir(videos_dir)):
+        if not name.lower().endswith(VIDEO_EXTS):
+            continue
+        path = os.path.join(videos_dir, name)
+        if not os.path.isfile(path):
+            continue
+        size_mb = round(os.path.getsize(path) / (1024 * 1024), 1)
+        fps = 0.0
+        width = 0
+        height = 0
+        frame_count = 0
+        duration_s = 0.0
+        try:
+            cap = cv2.VideoCapture(path)
+            if cap.isOpened():
+                fps = float(cap.get(cv2.CAP_PROP_FPS) or 0)
+                width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH) or 0)
+                height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT) or 0)
+                frame_count = int(cap.get(cv2.CAP_PROP_FRAME_COUNT) or 0)
+                if fps > 0 and frame_count > 0:
+                    duration_s = round(frame_count / fps, 1)
+            cap.release()
+        except Exception:
+            pass
+        items.append({
+            "filename": name,
+            "size_mb": size_mb,
+            "fps": round(fps, 2),
+            "width": width,
+            "height": height,
+            "frame_count": frame_count,
+            "duration_s": duration_s,
+        })
+    return items
+
+
+@router.post("/playback/start")
+def playback_start(request: Request, body: PlaybackStartRequest):
+    pm = request.app.state.playback_manager
+    if pm is None:
+        raise HTTPException(500, "Playback not available")
+
+    if bool(body.session) == bool(body.video):
+        raise HTTPException(400, "Specify exactly one of 'session' or 'video'")
+
+    session_name = None
+    video_filename = None
+
+    if body.session:
+        session_name = _sanitize_name(body.session)
+        svo_path = os.path.join(
+            _get_records_dir(request), session_name, "recording.svo2"
+        )
+        if not os.path.isfile(svo_path):
+            raise HTTPException(404, "SVO file not found for this session")
+    else:
+        video_filename = _sanitize_name(body.video)
+        if not video_filename.lower().endswith(VIDEO_EXTS):
+            raise HTTPException(400, "Unsupported video extension")
+        video_path = os.path.join(_get_videos_dir(request), video_filename)
+        if not os.path.isfile(video_path):
+            raise HTTPException(404, "Video file not found")
+
+    mm = _get_mode_manager(request)
+    ok, msg = mm.request_mode(Mode.PLAYBACK, source="API")
+    if not ok:
+        raise HTTPException(409, msg)
+
+    try:
+        pm.start(session_name=session_name, video_filename=video_filename)
+    except Exception as e:
+        mm.request_mode(Mode.IDLE, source="API")
+        raise HTTPException(500, str(e))
+
+    label = session_name or video_filename
+    return {"ok": True, "message": f"Playback started: {label}"}
+
+
+@router.post("/playback/stop")
+def playback_stop(request: Request):
+    mm = _get_mode_manager(request)
+    ok, msg = mm.request_mode(Mode.IDLE, source="API")
+    if not ok:
+        raise HTTPException(409, msg)
+    return {"ok": True, "message": msg}
+
+
+@router.post("/playback/pause")
+def playback_pause(request: Request, body: PlaybackPauseRequest):
+    pm = request.app.state.playback_manager
+    if pm is None:
+        raise HTTPException(500, "Playback not available")
+    pm.set_paused(body.paused)
+    return {"ok": True, "paused": body.paused}
+
+
+@router.get("/playback/status")
+def playback_status(request: Request):
+    state = _get_state(request)
+    return state.get_playback().__dict__
 
 
 @router.get("/sessions/{name}/evaluations/{filename}")

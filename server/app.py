@@ -27,7 +27,7 @@ class NoCacheHTMLMiddleware(BaseHTTPMiddleware):
 
 
 def create_app(state, mode_manager, inference_thread, training_manager,
-               evaluation_manager=None) -> FastAPI:
+               evaluation_manager=None, playback_manager=None) -> FastAPI:
     app = FastAPI(title="Ridge Detector v2", version="2.0.0")
 
     # Middleware
@@ -39,6 +39,7 @@ def create_app(state, mode_manager, inference_thread, training_manager,
     app.state.inference_thread = inference_thread
     app.state.training_manager = training_manager
     app.state.evaluation_manager = evaluation_manager
+    app.state.playback_manager = playback_manager
 
     # API routes
     app.include_router(api_router, prefix="/api")

@@ -46,7 +46,8 @@ async def websocket_endpoint(ws: WebSocket):
     state = ws.app.state.shared_state
 
     # Default subscriptions
-    channels = {"status", "detection", "training", "evaluation", "log", "frame"}
+    channels = {"status", "detection", "training", "evaluation",
+                "playback", "log", "frame"}
 
     # Track what was last sent to avoid redundant updates
     last_mode = None
@@ -128,6 +129,21 @@ async def websocket_endpoint(ws: WebSocket):
                         "phase": ev.phase,
                         "model_name": ev.model_name,
                         "avg_iou": ev.avg_iou,
+                    }})
+
+            # Playback updates
+            if "playback" in channels:
+                if state.playback_updated.is_set():
+                    state.playback_updated.clear()
+                    pb = state.get_playback()
+                    await ws.send_json({"type": "playback", "data": {
+                        "running": pb.running,
+                        "paused": pb.paused,
+                        "session_name": pb.session_name,
+                        "current_frame": pb.current_frame,
+                        "total_frames": pb.total_frames,
+                        "skipped_frames": pb.skipped_frames,
+                        "phase": pb.phase,
                     }})
 
             # Log updates

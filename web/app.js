@@ -100,6 +100,9 @@ const App = {
     } else if (parts[0] === 'evaluation') {
       this.showPage('evaluation');
       this.loadEvaluationPage();
+    } else if (parts[0] === 'playback') {
+      this.showPage('playback');
+      this.loadPlaybackPage();
     } else {
       this.showPage('dashboard');
     }
@@ -115,6 +118,7 @@ const App = {
       annotation: 'page-annotation',
       training: 'page-training',
       evaluation: 'page-evaluation',
+      playback: 'page-playback',
     };
 
     const el = document.getElementById(pageMap[name]);
@@ -127,6 +131,7 @@ const App = {
       annotation: '[data-page="sessions"]',
       training: '[data-page="training"]',
       evaluation: '[data-page="evaluation"]',
+      playback: '[data-page="playback"]',
     };
     const navEl = document.querySelector(navMap[name]);
     if (navEl) navEl.classList.add('active');
@@ -137,6 +142,7 @@ const App = {
     else if (page === 'dashboard') window.location.hash = '#/';
     else if (page === 'training') window.location.hash = '#/training';
     else if (page === 'evaluation') window.location.hash = '#/evaluation';
+    else if (page === 'playback') window.location.hash = '#/playback';
   },
 
   // ----------------------------------------------------------------
@@ -154,7 +160,7 @@ const App = {
         this.updateConnectionDot(true);
         this.ws.send(JSON.stringify({
           type: 'subscribe',
-          channels: ['status', 'detection', 'training', 'evaluation', 'log', 'frame']
+          channels: ['status', 'detection', 'training', 'evaluation', 'playback', 'log', 'frame']
         }));
         // Re-sync time on every (re)connection.
         this.syncTime();
@@ -194,6 +200,9 @@ const App = {
         break;
       case 'evaluation':
         this.updateEvaluation(msg.data);
+        break;
+      case 'playback':
+        this.updatePlayback(msg.data);
         break;
       case 'log':
         this.appendLogs(msg.data);
@@ -288,6 +297,11 @@ const App = {
     if (data.evaluation) {
       this.updateEvaluation(data.evaluation);
     }
+
+    // Playback data if present
+    if (data.playback) {
+      this.updatePlayback(data.playback);
+    }
   },
 
   updateDetection(data) {
@@ -297,11 +311,20 @@ const App = {
       if (el) el.textContent = val;
     };
 
-    setVal('stat-a', data.a != null ? Number(data.a).toFixed(4) : '--');
-    setVal('stat-b', data.b != null ? Number(data.b).toFixed(1) : '--');
-    setVal('stat-fps', data.fps != null ? Number(data.fps).toFixed(1) : '--');
-    setVal('stat-serial', data.serial_count != null
-      ? `${data.serial_status || ''} ${data.serial_count}` : '--');
+    const aText = data.a != null ? Number(data.a).toFixed(4) : '--';
+    const bText = data.b != null ? Number(data.b).toFixed(1) : '--';
+    const fpsText = data.fps != null ? Number(data.fps).toFixed(1) : '--';
+    const serialText = data.serial_count != null
+      ? `${data.serial_status || ''} ${data.serial_count}` : '--';
+
+    setVal('stat-a', aText);
+    setVal('stat-b', bText);
+    setVal('stat-fps', fpsText);
+    setVal('stat-serial', serialText);
+    setVal('pb-stat-a', aText);
+    setVal('pb-stat-b', bText);
+    setVal('pb-stat-fps', fpsText);
+    setVal('pb-stat-serial', serialText);
   },
 
   updateTraining(data) {
@@ -332,11 +355,14 @@ const App = {
   },
 
   updateFrame(base64Data) {
-    if (this.currentPage !== 'dashboard') return;
-    const img = document.getElementById('live-preview');
-    if (img && base64Data) {
-      img.src = `data:image/jpeg;base64,${base64Data}`;
-    }
+    if (!base64Data) return;
+    const src = `data:image/jpeg;base64,${base64Data}`;
+    let imgId = null;
+    if (this.currentPage === 'dashboard') imgId = 'live-preview';
+    else if (this.currentPage === 'playback') imgId = 'playback-preview';
+    if (!imgId) return;
+    const img = document.getElementById(imgId);
+    if (img) img.src = src;
   },
 
   appendLogs(logs) {
@@ -1985,6 +2011,191 @@ const App = {
 
     // Scroll to results
     card.scrollIntoView({ behavior: 'smooth' });
+  },
+
+  // ----------------------------------------------------------------
+  // Playback
+  // ----------------------------------------------------------------
+  _playbackPaused: false,
+  _playbackSource: 'svo',
+
+  async loadPlaybackPage() {
+    await this.loadPlaybackSessions();
+    await this.loadPlaybackVideos();
+    try {
+      const res = await fetch('/api/playback/status');
+      if (res.ok) {
+        this.updatePlayback(await res.json());
+      }
+    } catch (e) { /* offline */ }
+  },
+
+  setPlaybackSource(src) {
+    this._playbackSource = src;
+    const svoBtn = document.getElementById('playback-src-svo');
+    const vidBtn = document.getElementById('playback-src-video');
+    const svoRow = document.getElementById('playback-session-row');
+    const vidRow = document.getElementById('playback-video-row');
+    if (svoBtn) svoBtn.classList.toggle('active', src === 'svo');
+    if (vidBtn) vidBtn.classList.toggle('active', src === 'video');
+    if (svoRow) svoRow.style.display = src === 'svo' ? '' : 'none';
+    if (vidRow) vidRow.style.display = src === 'video' ? '' : 'none';
+  },
+
+  async loadPlaybackVideos() {
+    const select = document.getElementById('playback-video-select');
+    if (!select) return;
+    try {
+      const res = await fetch('/api/videos');
+      if (!res.ok) return;
+      const videos = await res.json();
+      select.innerHTML = '<option value="">--</option>';
+      for (const v of videos) {
+        const opt = document.createElement('option');
+        opt.value = v.filename;
+        const dims = v.width && v.height ? `${v.width}x${v.height}` : '?';
+        const dur = v.duration_s ? `${v.duration_s}s` : '?';
+        opt.textContent = `${v.filename} (${v.size_mb}MB, ${dims}, ${dur})`;
+        select.appendChild(opt);
+      }
+    } catch (e) { /* offline */ }
+  },
+
+  async loadPlaybackSessions() {
+    const select = document.getElementById('playback-session-select');
+    if (!select) return;
+    try {
+      const res = await fetch('/api/sessions');
+      if (!res.ok) return;
+      const sessions = await res.json();
+      const withSvo = sessions.filter(s => (s.svo2_size_mb || 0) > 0);
+      select.innerHTML = '<option value="">--</option>';
+      for (const s of withSvo) {
+        const opt = document.createElement('option');
+        opt.value = s.name;
+        opt.textContent = `${s.name} (${s.svo2_size_mb}MB)`;
+        select.appendChild(opt);
+      }
+    } catch (e) { /* offline */ }
+  },
+
+  async startPlayback() {
+    let body;
+    if (this._playbackSource === 'video') {
+      const video = document.getElementById('playback-video-select').value;
+      if (!video) {
+        alert('Select a video file.');
+        return;
+      }
+      body = { video };
+    } else {
+      const session = document.getElementById('playback-session-select').value;
+      if (!session) {
+        alert('Select a session.');
+        return;
+      }
+      body = { session };
+    }
+    try {
+      const res = await fetch('/api/playback/start', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || data.message || 'Failed to start playback');
+      }
+      this.fetchStatus();
+    } catch (e) {
+      alert('Connection error');
+    }
+  },
+
+  async stopPlayback() {
+    try {
+      const res = await fetch('/api/playback/stop', { method: 'POST' });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.detail || data.message || 'Failed to stop');
+      }
+      this.fetchStatus();
+    } catch (e) {
+      alert('Connection error');
+    }
+  },
+
+  async togglePlaybackPause() {
+    const next = !this._playbackPaused;
+    try {
+      const res = await fetch('/api/playback/pause', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ paused: next }),
+      });
+      if (!res.ok) {
+        const data = await res.json();
+        alert(data.detail || 'Failed to toggle pause');
+        return;
+      }
+      this._playbackPaused = next;
+    } catch (e) {
+      alert('Connection error');
+    }
+  },
+
+  updatePlayback(data) {
+    if (!data) return;
+    this._playbackPaused = !!data.paused;
+
+    const phase = document.getElementById('playback-phase');
+    const progress = document.getElementById('playback-progress');
+    const detail = document.getElementById('playback-detail');
+    const btnStart = document.getElementById('btn-playback-start');
+    const btnPause = document.getElementById('btn-playback-pause');
+    const btnStop = document.getElementById('btn-playback-stop');
+
+    if (data.running) {
+      const pct = data.total_frames > 0
+        ? Math.round((data.current_frame / data.total_frames) * 100) : 0;
+      const label = data.source_name || data.session_name || '';
+      if (phase) {
+        const state = data.paused ? 'paused' : (data.phase || 'playing');
+        phase.textContent = `${state}: ${label}`;
+      }
+      if (progress) progress.style.width = `${pct}%`;
+      if (detail) {
+        detail.textContent =
+          `Frame ${data.current_frame}/${data.total_frames}` +
+          `   Skipped: ${data.skipped_frames || 0}`;
+      }
+      if (btnStart) btnStart.disabled = true;
+      if (btnPause) {
+        btnPause.disabled = false;
+        btnPause.textContent = data.paused ? 'Resume' : 'Pause';
+      }
+      if (btnStop) btnStop.disabled = false;
+    } else {
+      if (phase) {
+        const label = data.source_name || data.session_name || '';
+        phase.textContent = data.phase === 'completed'
+          ? `Completed: ${label}`
+          : (data.phase || 'Not running');
+      }
+      if (progress) {
+        progress.style.width = data.phase === 'completed' ? '100%' : '0%';
+      }
+      if (detail) {
+        detail.textContent = data.skipped_frames
+          ? `Skipped: ${data.skipped_frames}` : '';
+      }
+      if (btnStart) btnStart.disabled = false;
+      if (btnPause) {
+        btnPause.disabled = true;
+        btnPause.textContent = 'Pause';
+      }
+      if (btnStop) btnStop.disabled = true;
+    }
   },
 };
 
