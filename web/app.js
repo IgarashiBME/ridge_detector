@@ -272,10 +272,7 @@ const App = {
 
     // Conf threshold
     if (data.conf !== undefined) {
-      const confInput = document.getElementById('conf-input');
-      if (confInput && document.activeElement !== confInput) {
-        confInput.value = data.conf;
-      }
+      this.updateConf(data.conf);
     }
 
     // EMA alpha
@@ -403,23 +400,27 @@ const App = {
   // Model selection
   // ----------------------------------------------------------------
   async loadModels() {
-    const select = document.getElementById('model-select');
-    if (!select) return;
+    const ids = ['model-select', 'pb-model-select'];
     try {
       const res = await fetch('/api/models');
       if (!res.ok) return;
       const data = await res.json();
       const models = data.models || [];
-      select.innerHTML = '';
-      for (const m of models) {
-        const opt = document.createElement('option');
-        opt.value = m.path;
-        opt.textContent = `${m.name} (${m.size_mb}MB)`;
-        if (m.path === data.current) opt.selected = true;
-        select.appendChild(opt);
-      }
-      if (models.length === 0) {
-        select.innerHTML = '<option value="">No models</option>';
+      for (const id of ids) {
+        const select = document.getElementById(id);
+        if (!select) continue;
+        select.innerHTML = '';
+        if (models.length === 0) {
+          select.innerHTML = '<option value="">No models</option>';
+          continue;
+        }
+        for (const m of models) {
+          const opt = document.createElement('option');
+          opt.value = m.path;
+          opt.textContent = `${m.name} (${m.size_mb}MB)`;
+          if (m.path === data.current) opt.selected = true;
+          select.appendChild(opt);
+        }
       }
     } catch (e) {
       // Keep existing options on error
@@ -428,6 +429,11 @@ const App = {
 
   async selectModel(path) {
     if (!path) return;
+    // Mirror the choice to the other dropdown.
+    for (const id of ['model-select', 'pb-model-select']) {
+      const el = document.getElementById(id);
+      if (el && el.value !== path) el.value = path;
+    }
     try {
       const res = await fetch('/api/models/select', {
         method: 'POST',
@@ -446,6 +452,21 @@ const App = {
   // ----------------------------------------------------------------
   // Conf Threshold
   // ----------------------------------------------------------------
+  onConfSliderInput(value) {
+    const v = parseFloat(value).toFixed(2);
+    const ids = ['conf-value', 'pb-conf-value'];
+    for (const id of ids) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = v;
+    }
+    // Mirror slider position to the other instance.
+    const sids = ['conf-slider', 'pb-conf-slider'];
+    for (const id of sids) {
+      const el = document.getElementById(id);
+      if (el && document.activeElement !== el) el.value = value;
+    }
+  },
+
   async setConf(value) {
     const conf = parseFloat(value);
     if (isNaN(conf)) return;
@@ -458,12 +479,33 @@ const App = {
     } catch (e) { /* offline */ }
   },
 
+  updateConf(conf) {
+    const v = parseFloat(conf).toFixed(2);
+    const sliders = ['conf-slider', 'pb-conf-slider'];
+    for (const id of sliders) {
+      const el = document.getElementById(id);
+      if (el && document.activeElement !== el) el.value = conf;
+    }
+    const labels = ['conf-value', 'pb-conf-value'];
+    for (const id of labels) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = v;
+    }
+  },
+
   // ----------------------------------------------------------------
   // EMA Alpha
   // ----------------------------------------------------------------
   onEmaSliderInput(value) {
-    const label = document.getElementById('ema-value');
-    if (label) label.textContent = parseFloat(value).toFixed(2);
+    const v = parseFloat(value).toFixed(2);
+    for (const id of ['ema-value', 'pb-ema-value']) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = v;
+    }
+    for (const id of ['ema-slider', 'pb-ema-slider']) {
+      const el = document.getElementById(id);
+      if (el && document.activeElement !== el) el.value = value;
+    }
   },
 
   async setEmaAlpha(value) {
@@ -478,10 +520,15 @@ const App = {
   },
 
   updateEmaAlpha(alpha) {
-    const slider = document.getElementById('ema-slider');
-    const label = document.getElementById('ema-value');
-    if (slider) slider.value = alpha;
-    if (label) label.textContent = parseFloat(alpha).toFixed(2);
+    const v = parseFloat(alpha).toFixed(2);
+    for (const id of ['ema-slider', 'pb-ema-slider']) {
+      const el = document.getElementById(id);
+      if (el && document.activeElement !== el) el.value = alpha;
+    }
+    for (const id of ['ema-value', 'pb-ema-value']) {
+      const el = document.getElementById(id);
+      if (el) el.textContent = v;
+    }
   },
 
   // ----------------------------------------------------------------
